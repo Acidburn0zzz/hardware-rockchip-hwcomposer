@@ -7025,7 +7025,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
 	if(_contextAnchor->mLcdcNum == 1)
 #endif
     {
-        if(!hwcPrimaryToExternalCheckConfig(context,fbinfo)){
+        if(!hwcPrimaryToExternalCheckConfig(context,hfi.fbinfo)){
             ALOGD_IF(log(HLLONE),"Policy out [%d][%s]",__LINE__,__FUNCTION__);
             goto GpuComP;
         }
