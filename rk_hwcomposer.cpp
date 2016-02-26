@@ -222,6 +222,19 @@ int HALPixelFormatSetCompression(int iFormat, int iCompression)
 
 #endif
 
+void hwc_list_nodraw(hwc_display_contents_1_t  *list)
+{
+    if (list == NULL)
+    {
+        return;
+    }
+    for (unsigned int i = 0; i < list->numHwLayers - 1; i++)
+    {
+        list->hwLayers[i].compositionType = HWC_NODRAW;
+    }
+    return;
+}
+
 int hwc_init_version()
 {
     char acVersion[50];
@@ -6617,11 +6630,12 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
 	size_t i;
     size_t j;
 
+    hwcContext * ctxp = _contextAnchor;
     hwcContext * context = _contextAnchor;
     if(dpyID == HWCE){
         context = _contextAnchor1;
     }
- 
+
     int ret;
     int err;    
     bool vertical = false;
@@ -6658,7 +6672,11 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
          __LINE__,
          list->numHwLayers -1);
 
-    
+    if(ctxp->mBootCnt < BOOTCOUNT)
+    {
+        hwc_list_nodraw(list);
+        return 0;
+    }
 #if GET_VPU_INTO_FROM_HEAD
     //init handles,reset bMatch
     for (i = 0; i < MAX_VIDEO_SOURCE; i++){
@@ -7847,6 +7865,7 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
     if(!is_need_post(list,dpyID,0)){
         return -1;
     }
+    hwcContext * ctxp = _contextAnchor;
     hwcContext * context = _contextAnchor;
     if(dpyID == HWCE){
         context = _contextAnchor1;
@@ -7866,6 +7885,7 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
         surf = list->sur;        
     }
 
+
     /* Check device handle. */
     if (dpyID == 0 && (context == NULL || 
         &_contextAnchor->device.common != (hw_device_t *) dev)) {
@@ -7880,6 +7900,23 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
         return -1;
     } else if(list == NULL) {
         return -1;
+    }
+
+    if(ctxp->mBootCnt < BOOTCOUNT) {
+        int offset = 0;
+        int numLayers = 0;
+        hwc_layer_1_t *fbLayer = NULL;
+        struct private_handle_t * fbhandle = NULL;
+        hwc_sync_release(list);
+        if(0 == dpyID) ctxp->mBootCnt++;
+        numLayers = list->numHwLayers;
+        if(numLayers > 0) {
+            fbLayer = &list->hwLayers[numLayers - 1];
+            fbhandle = (struct private_handle_t*)fbLayer->handle;
+            offset = fbhandle ? fbhandle->offset : -1;
+        }
+        ALOGW("hwc skip,numLayers=%d,offset=%d",list->numHwLayers,offset);
+        return 0;
     }
 
     LOGV("%s(%d):>>> Set start %d layers <<<,mode=%d",
@@ -8689,7 +8726,6 @@ hwc_device_open(
     int stride_gr;
     int i;
 
-    
     LOGD("%s(%d):Open hwc device in thread=%d",
          __FUNCTION__, __LINE__, gettid());
 
@@ -8748,14 +8784,11 @@ hwc_device_open(
          hwcONERROR(hwcSTATUS_IO_ERR);
     }
 
-
     rel = ioctl(context->fbFd, FBIOGET_FSCREENINFO, &fixInfo);
     if (rel != 0)
     {
          hwcONERROR(hwcSTATUS_IO_ERR);
     }
-
-
 
     if (ioctl(context->fbFd, FBIOGET_VSCREENINFO, &info) == -1)
     {
@@ -8838,6 +8871,7 @@ hwc_device_open(
     }
     context->mCurVideoIndex= 0;
 
+    context->mBootCnt = 0;
     context->mSkipFlag = 0;
     context->mVideoMode = false;
     context->mNV12_VIDEO_VideoMode = false;
@@ -9212,6 +9246,7 @@ hwc_device_open(
         LOGD("Create hwc_control_3dmode_thread thread error .");
     }
 #endif
+
     return 0;
 
 OnError:
@@ -9473,6 +9508,7 @@ int hotplug_get_config(int flag){
     if(_contextAnchor->mLcdcNum == 2){
         info.reserved[3] |= 1;
 #endif
+        info.reserved[3] |= 1;
     	if (ioctl(fd, FBIOPUT_VSCREENINFO, &info)){
     	    ALOGE("hotplug_get_config:FBIOPUT_VSCREENINFO error,hdmifd=%d",fd);
             return -errno;

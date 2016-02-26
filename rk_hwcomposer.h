@@ -95,6 +95,7 @@
 #define RWIDTH                          (4096)
 #define RHEIGHT                         (2304)
 #define RLAGESIZE                       (14155776)      //RLAGESIZE = RWIDTH * RHEIGHT * 1.5
+#define BOOTCOUNT                       (5)
 
 //Other macro
 #define GPU_WIDTH                       handle->width
@@ -601,6 +602,7 @@ typedef struct _hwcContext
     int                            flag;
     int                            fb_blanked;
     int                            mAlphaError;
+    int                            mBootCnt;
 
     /***************** video flag **************************/
     bool                           mVideoMode;
