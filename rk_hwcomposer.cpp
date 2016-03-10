@@ -250,6 +250,9 @@ int hwc_init_version()
 #ifdef RK3288_MID
     strcat(acVersion,"-3288MID");
 #endif
+#ifdef RK3366_MID
+    strcat(acVersion,"-3366MID");
+#endif
 #ifdef RK3368_BOX
     strcat(acVersion,"-3368BOX");
 #endif
@@ -8313,7 +8316,7 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
         if(_contextAnchor1){
             _contextAnchor1->fb_blanked = 1;
         }
-#ifdef RK3288_MID
+#if defined(RK3288_MID) || defined(RK3366_MID)
         hotplug_set_frame(context,0);
 #endif
 #ifdef RK3288_BOX
@@ -8341,7 +8344,7 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
             context->mHdmiSI.CvbsOn = true;
             context->mHdmiSI.HdmiOn = false;
         }
-#ifdef RK3288_MID
+#if defined(RK3288_MID) || defined(RK3366_MID)
         hotplug_set_frame(context,0);
 #endif
 #ifdef RK3288_BOX
