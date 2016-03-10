@@ -5795,7 +5795,7 @@ void* hwc_control_3dmode_thread(void *arg)
         ret = hwc_control_3dmode(2,0);
         if(needStereo != ret) {
             hwc_control_3dmode(needStereo,1);
-            ALOGI("change stereo mode %d to %d",ret,needStereo);
+            ALOGI_IF(log(HLLONE),"change stereo mode %d to %d",ret,needStereo);
         }
         ALOGD_IF(log(HLLTWO),"mControlStereo.count=%d",needStereo);
         pthread_cond_wait(&contextp->mControlStereo.cond,&contextp->mControlStereo.mtx);
@@ -9496,11 +9496,19 @@ int hotplug_get_config(int flag){
     }
 #endif
 #else
+#ifdef RK3366_MID
+	if(context->fbFd > 0){
+	    fd  =  context->fbFd;
+    }else{
+        fd  =  open("/dev/graphics/fb5", O_RDWR, 0);
+    }
+#else
 	if(context->fbFd > 0){
 	    fd  =  context->fbFd;
     }else{
         fd  =  open("/dev/graphics/fb4", O_RDWR, 0);
     }
+#endif
 #endif
 	if (fd < 0){
 	    ALOGE("hotplug_get_config:open /dev/graphics/fb4 fail");
