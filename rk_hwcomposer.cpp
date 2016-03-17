@@ -9711,6 +9711,19 @@ int hotplug_get_config(int flag){
     }
     context->mSrBI.mCurIndex = 0;
 #endif
+#ifdef TARGET_BOARD_PLATFORM_RK3366
+    context->fun_policy[HWC_HOR] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_skip;
+#ifdef SUPPORT_STEREO
+    context->fun_policy[HWC_MIX_FPS] = try_wins_mix_fp_stereo;
+#else
+    context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
+#endif
+    context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_vh;
+#else
     context->fun_policy[HWC_HOR] = try_wins_dispatch_hor;
     context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_mix_down;
     context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_mix_cross;
@@ -9722,6 +9735,7 @@ int hotplug_get_config(int flag){
 #endif
     context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_mix_up;
     context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_vh;
+#endif
     _contextAnchor1 = context;
 #ifndef GPU_G6110
 #ifdef RK3288_BOX
