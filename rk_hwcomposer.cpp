@@ -253,6 +253,9 @@ int hwc_init_version()
 #ifdef RK3366_MID
     strcat(acVersion,"-3366MID");
 #endif
+#ifdef RK3399_MID
+    strcat(acVersion,"-3399MID");
+#endif
 #ifdef RK3368_BOX
     strcat(acVersion,"-3368BOX");
 #endif
@@ -416,7 +419,7 @@ int rga_video_copybit(struct private_handle_t *handle,int tranform,int w_valid,i
         context = _contextAnchor1;
     }
     int index_v = context->mCurVideoIndex%MaxVideoBackBuffers;
-    if (!rga_fd || !handle) {
+    if (rga_fd < 0 || !handle) {
        return -1; 
     }
     if(_contextAnchor->video_fmt != HAL_PIXEL_FORMAT_YCrCb_NV12 && !specialwin) {
@@ -8321,7 +8324,7 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
         if(_contextAnchor1){
             _contextAnchor1->fb_blanked = 1;
         }
-#if defined(RK3288_MID) || defined(RK3366_MID)
+#if defined(RK3288_MID) || defined(RK3366_MID) || defined(RK3399_MID)
         hotplug_set_frame(context,0);
 #endif
 #ifdef RK3288_BOX
@@ -8349,7 +8352,7 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
             context->mHdmiSI.CvbsOn = true;
             context->mHdmiSI.HdmiOn = false;
         }
-#if defined(RK3288_MID) || defined(RK3366_MID)
+#if defined(RK3288_MID) || defined(RK3366_MID) || defined(RK3399_MID)
         hotplug_set_frame(context,0);
 #endif
 #ifdef RK3288_BOX
@@ -8506,7 +8509,7 @@ hwc_device_close(
         return 0;
     }
 
-    if(context->engine_fd)
+    if(context->engine_fd > -1)
         close(context->engine_fd);
     /* Clean context. */
     if(context->vsync_fd > 0)
@@ -8902,14 +8905,14 @@ hwc_device_open(
     context->engine_fd = open("/dev/rga",O_RDWR,0);
     if( context->engine_fd < 0)
     {
-        hwcONERROR(hwcRGA_OPEN_ERR);
+        //hwcONERROR(hwcRGA_OPEN_ERR);
         ALOGE("rga open err!");
-
     }
 
 #if ENABLE_WFD_OPTIMIZE
 	 property_set("sys.enable.wfd.optimize","1");
 #endif
+    if(context->engine_fd > -1)
     {
         int type = hwc_get_int_property("sys.enable.wfd.optimize","0");
         context->wfdOptimize = type;
@@ -9200,12 +9203,14 @@ hwc_device_open(
 
     char Version[32];
 
-    memset(Version,0,sizeof(Version));
-    if(ioctl(context->engine_fd, RGA_GET_VERSION, Version) == 0)
-    {
-        property_set("sys.grga.version",Version);
-        LOGD(" rga version =%s",Version);
+    if(context->engine_fd > 0) {
+        memset(Version,0,sizeof(Version));
+        if(ioctl(context->engine_fd, RGA_GET_VERSION, Version) == 0)
+        {
+            property_set("sys.grga.version",Version);
+            LOGD(" rga version =%s",Version);
 
+        }
     }
 #ifdef TARGET_BOARD_PLATFORM_RK3368
     if(0 == hwc_get_int_property("ro.rk.soc", "0"))
@@ -9297,7 +9302,7 @@ OnError:
     /* Error roll back. */ 
     if (context != NULL)
     {
-        if (context->engine_fd != 0)
+        if (context->engine_fd > -1)
         {
             close(context->engine_fd);
         }
@@ -9501,7 +9506,7 @@ int hotplug_get_config(int flag){
     }
 #endif
 #else
-#ifdef RK3366_MID
+#if defined(RK3366_MID) || defined(RK3399_MID)
 	if(context->fbFd > 0){
 	    fd  =  context->fbFd;
     }else{
@@ -9711,7 +9716,7 @@ int hotplug_get_config(int flag){
     }
     context->mSrBI.mCurIndex = 0;
 #endif
-#ifdef TARGET_BOARD_PLATFORM_RK3366
+#if defined(TARGET_BOARD_PLATFORM_RK3366) || defined(TARGET_BOARD_PLATFORM_RK3399)
     context->fun_policy[HWC_HOR] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_skip;
@@ -9775,7 +9780,7 @@ OnError:
     /* Error roll back. */ 
     if (context != NULL)
     {
-        if (context->engine_fd != 0)
+        if (context->engine_fd > -1)
         {
             close(context->engine_fd);
         }
@@ -9889,7 +9894,7 @@ int hotplug_close_device()
     int err=0;
     hwcContext * context = _contextAnchor1;
 
-    if(context->engine_fd)
+    if(context->engine_fd > -1)
         close(context->engine_fd);
     /* Clean context. */
     if(context->vsync_fd > 0)
