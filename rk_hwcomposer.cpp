@@ -1345,9 +1345,14 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             || Context->zone_manager.zone_info[j].format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO
             || haveStartwin)
             bpp = 2;
-#ifdef GPU_G6110
+#if G6110_SUPPORT_FBDC
         else if(Context->zone_manager.zone_info[j].format == HAL_PIXEL_FORMAT_BGRX_8888)
             bpp = 4;
+        else if(HALPixelFormatGetCompression(Context->zone_manager.zone_info[j].format) != HAL_FB_COMPRESSION_NONE)
+        {
+            bpp = 4;
+            Context->bFbdc = true;
+        }
 #endif
         else
             bpp = 4;
@@ -1432,6 +1437,7 @@ int try_wins_dispatch_hor(void * ctx,hwc_display_contents_1_t * list)
     hwcContext * Context = (hwcContext *)ctx;
     hwcContext * contextAh = _contextAnchor;
     initLayerCompositionType(Context,list);
+
     memset(&bpvinfo,0,sizeof(BpVopInfo));
     ZoneManager zone_m;
     memcpy(&zone_m,&Context->zone_manager,sizeof(ZoneManager));
@@ -2252,7 +2258,7 @@ int try_wins_dispatch_mix_up(void * ctx,hwc_display_contents_1_t * list)
     int iFirstTransformLayer=-1;
     bool bTransform=false;
     mix_info gMixInfo;
-    
+
     memset(&bpvinfo,0,sizeof(BpVopInfo));
     char const* compositionTypeName[] = {
             "win0",
@@ -2714,6 +2720,7 @@ int try_wins_dispatch_mix_down(void * ctx,hwc_display_contents_1_t * list)
             "win3_3",
             };
     hwcContext * contextAh = _contextAnchor;
+
     memset(&zone_info_ty,0,sizeof(zone_info_ty));
     if(pzone_mag->zone_cnt < 5 && !Context->mMultiwindow) {
         ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
@@ -4411,7 +4418,7 @@ int try_wins_dispatch_ver(void * ctx,hwc_display_contents_1_t * list)
             "win3_3",
             "win_ext"
             };
-            
+
     // first dispatch stretch win         
     if(pzone_mag->zone_cnt <=4)
     {
@@ -4507,10 +4514,13 @@ int try_wins_dispatch_skip(void * ctx,hwc_display_contents_1_t * list)
     return -1;
 }
 
+#if G6110_SUPPORT_FBDC
 static int check_zone(hwcContext * Context)
 {
     ZoneManager* pzone_mag = &(Context->zone_manager);
     int iCountFBDC = 0;
+    int win_id = -1,old_win_id = -1;
+    static gralloc_module_t *psHal = NULL;
 
     if(Context == NULL)
     {
@@ -4518,25 +4528,65 @@ static int check_zone(hwcContext * Context)
         return -1;
     }
 
-#if G6110_SUPPORT_FBDC
+
     for(int i=0;i<pzone_mag->zone_cnt;i++)
     {
+        switch(pzone_mag->zone_info[i].dispatched) {
+            case win0:
+                win_id = 0;
+                break;
+            case win1:
+                win_id = 1;
+                break;
+            case win2_0:
+            case win2_1:
+            case win2_2:
+            case win2_3:
+                win_id = 2;
+                break;
+            case win3_0:
+            case win3_1:
+            case win3_2:
+            case win3_3:
+                win_id = 3;
+                break;
+            case win_ext:
+                break;
+            default:
+                ALOGE("win err!");
+                return -1;
+         }
+
         //Count layers which used fbdc
-        if(HALPixelFormatGetCompression(pzone_mag->zone_info[i].format) != HAL_FB_COMPRESSION_NONE)
+        if(HALPixelFormatGetCompression(pzone_mag->zone_info[i].format) != HAL_FB_COMPRESSION_NONE
+            && win_id != old_win_id)
         {
             iCountFBDC++;
         }
+
+        old_win_id = win_id;
+
+        /*if(iCountFBDC > 1 && HALPixelFormatGetCompression(pzone_mag->zone_info[i].format) != HAL_FB_COMPRESSION_NONE)
+        {
+            psHal->perform(psHal,
+                                  GRALLOC_MODULE_SET_BUFFER_FORMAT_HINT_IMG,
+                                  pzone_mag->zone_info[i].handle,
+                                  HAL_PIXEL_FORMAT_RGBA_8888);
+            ALOGD("IMG reset format to RGBA_8888");
+            pzone_mag->zone_info[i].format = HAL_PIXEL_FORMAT_RGBA_8888;
+        }*/
+
     }
 
     //If FBDC layers bigger than one,then go into GPU composition.
     if(iCountFBDC > 1)
     {
-        LOGGPUCOP("%s:line=%d,iCountFBDC=%d",__func__,__LINE__,iCountFBDC);
         return -1;
     }
-#endif
+
     return 0;
 }
+#endif
 
 static hwcSTATUS
 hwcCheckFormat(
@@ -4595,6 +4645,7 @@ check_layer(
     }else{
         Context->mAlphaError = false;
     }
+
 
 #if OPTIMIZATION_FOR_DIMLAYER
     if(!strcmp(Layer->LayerName,"DimLayer"))
@@ -4775,6 +4826,7 @@ _Dump(
                  "flags=%08x, "
                  "handle=%p, "
                  "format=0x%x, "
+                 "fd = %d, "
                  "tr=%02x, "
                  "blend=%04x, "
                  "{%d,%d,%d,%d}, "
@@ -4786,6 +4838,7 @@ _Dump(
                  l->flags,
                  l->handle,
                  handle->format,
+                 handle->share_fd,
                  l->transform,
                  l->blending,
                  l->sourceCrop.left,
@@ -4853,8 +4906,7 @@ _DumpSurface(
                 if(pfile)
                 {
 #ifdef GPU_G6110
-                    fwrite((const void *)(handle_pre->pvBase),(size_t)(SrcStride * handle_pre->stride*handle_pre->height),1,pfile);
-
+                    fwrite((const void *)(handle_pre->pvBase),(size_t)(handle_pre->size),1,pfile);
 #else
                     fwrite((const void *)(handle_pre->base),(size_t)(SrcStride * handle_pre->stride*handle_pre->height),1,pfile);
 #endif
@@ -6026,6 +6078,7 @@ bool hwc_check_cfg(hwcContext * ctx,struct rk_fb_win_cfg_data fb_info)
                     ret = ret && (yact == ysize);
                     ret = ret && (data_format <= 7);
                 }
+
                 if(!ret){
                     ALOGW("%s[%d,%d]w[%d],a[%d],z_win[%d,%d],[%d,%d,%d,%d]=>[%d,%d,%d,%d],w_h_f[%d,%d,%d]",
                           ctx==_contextAnchor ? "PCfg err" : "ECfg err",width,height,i,j,z_order,win_id,
@@ -6038,6 +6091,7 @@ bool hwc_check_cfg(hwcContext * ctx,struct rk_fb_win_cfg_data fb_info)
             break;
         }
     }
+
     ret = ret && z_ret;
     return ret;
 }
@@ -6095,7 +6149,6 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
         pzone_mag->zone_info[i].addr,
         pzone_mag->zone_info[i].acq_fence_fd,
         pzone_mag->zone_info[i].LayerName);
-
 
         switch(pzone_mag->zone_info[i].dispatched) {
             case win0:
@@ -6242,7 +6295,23 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
             fb_info.win_par[win_no-1].area_par[area_no].xvir = pzone_mag->zone_info[i].stride;
             fb_info.win_par[win_no-1].area_par[area_no].yvir = pzone_mag->zone_info[i].height;
         }
+
+#if G6110_SUPPORT_FBDC
+        //zxl: xact need 16bytes aligned and yact need 4bytes aligned in FBDC area.
+        if(!mix_prepare && fb_info.win_par[win_no-1].area_par[area_no].fbdc_en == 1)
+        {
+            if(!IS_ALIGN(fb_info.win_par[win_no-1].area_par[area_no].yact,4))
+            {
+                fb_info.win_par[win_no-1].area_par[area_no].yact=ALIGN(fb_info.win_par[win_no-1].area_par[area_no].yact,4)-4;
+            }
+            if(!IS_ALIGN(fb_info.win_par[win_no-1].area_par[area_no].xact,16))
+            {
+                fb_info.win_par[win_no-1].area_par[area_no].xact=ALIGN(fb_info.win_par[win_no-1].area_par[area_no].yact,16)-16;
+            }
+        }
+#endif
     }    
+
 
 #ifndef GPU_G6110
     //win2 & win3 need sort by ypos (positive-order)
@@ -6311,8 +6380,8 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
                 fb_info.win_par[i].area_par[j].xvir > 4096 || fb_info.win_par[i].area_par[j].yvir > 4096 ||
                 fb_info.win_par[i].area_par[j].ion_fd < 0)
                 #endif
-                ALOGE("par[%d],area[%d],z_win_galp[%d,%d,%x],[%d,%d,%d,%d]=>[%d,%d,%d,%d],w_h_f[%d,%d,%d],acq_fence_fd=%d,fd=%d,addr=%x",
-                        i,j,
+                ALOGE("%s:line=%d,par[%d],area[%d],z_win_galp[%d,%d,%x],[%d,%d,%d,%d]=>[%d,%d,%d,%d],w_h_f[%d,%d,%d],acq_fence_fd=%d,fd=%d,addr=%x",
+                        __func__,__LINE__,i,j,
                         fb_info.win_par[i].z_order,
                         fb_info.win_par[i].win_id,
                         fb_info.win_par[i].g_alpha_val,
@@ -6376,6 +6445,16 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
             format = HAL_PIXEL_FORMAT_RGBA_8888;
             z_order++;
         }
+
+#if G6110_SUPPORT_FBDC
+        if(context->fbhandle.format == FBDC_ABGR_888)
+        {
+            format = context->fbhandle.format;
+            fb_info.win_par[win_no-1].area_par[0].fbdc_data_format = FBDC_ABGR_888;
+            fb_info.win_par[win_no-1].area_par[0].fbdc_en= 1;
+            fb_info.win_par[win_no-1].area_par[0].fbdc_cor_en = 0;
+        }
+#endif
 
         ALOGV("mix_flag=%d,win_no =%d,z_order = %d",mix_flag,win_no,z_order);
         unsigned int offset = handle->offset;
@@ -6554,6 +6633,13 @@ int hwc_try_policy(hwcContext * context,hwc_display_contents_1_t * list,int dpyI
 {
     int ret;
     for(int i = 0;i < HWC_POLICY_NUM;i++){
+#if G6110_SUPPORT_FBDC
+        //zxl: if in mix mode and it has fbdc layer before,then go into GPU compose.
+        if (i > HWC_HOR && context->bFbdc)
+        {
+            return -1;
+        }
+#endif
         ret = context->fun_policy[i]((void*)context,list);
         if(!ret){
             break; // find the Policy
@@ -6717,6 +6803,9 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     context->mHdmiSI.mix_vh=false;
     context->mNeedRgaTransform = false;
     context->mNV12_VIDEO_VideoMode=false;
+#if G6110_SUPPORT_FBDC
+    context->bFbdc = false;
+#endif
 #if OPTIMIZATION_FOR_DIMLAYER
     context->bHasDimLayer = false;
 #endif
@@ -6980,7 +7069,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     }
 
     //G6110 FBDC: only let video case continue.
-#if G6110_SUPPORT_FBDC
+#if 0
     if(!context->mVideoMode){
         goto GpuComP;
     }
@@ -6992,7 +7081,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
 		ALOGD_IF(log(HLLFOU),"Policy out [%d][%s]",__LINE__,__FUNCTION__);
         goto GpuComP;
     }
-   
+
     //if(vertical == true)
     ret = hwc_try_policy(context,list,dpyID);
     if(list->hwLayers[context->mRgaTBI.index].compositionType == HWC_FRAMEBUFFER) {
@@ -7025,10 +7114,13 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         }
     }
 
+#if G6110_SUPPORT_FBDC
     if(check_zone(context) && dpyID == 0){
         ALOGD_IF(log(HLLFOU),"Policy out [%d][%s]",__LINE__,__FUNCTION__);
         goto GpuComP;
     }
+#endif
+
     //before composition:do overlay no error???
     struct hwc_fb_info hfi;
     if(context->zone_manager.composter_mode == HWC_LCDC){
@@ -7323,8 +7415,14 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
 
         ALOGV("hwc_primary_Post num=%d,ion=%d",numLayers,handle->share_fd);
 
-        unsigned int offset = handle->offset;        
-        fb_info.win_par[0].area_par[0].data_format = context->fbhandle.format;
+        unsigned int offset = handle->offset;
+#if G6110_SUPPORT_FBDC
+        //fix splash bug when reboot system.
+        if(numLayers == 1)
+            fb_info.win_par[0].area_par[0].data_format = HAL_PIXEL_FORMAT_RGBA_8888;
+        else
+#endif
+            fb_info.win_par[0].area_par[0].data_format = context->fbhandle.format;
         fb_info.win_par[0].win_id = 0;
         fb_info.win_par[0].z_order = 0;
         fb_info.win_par[0].area_par[0].ion_fd = handle->share_fd;

@@ -119,13 +119,15 @@
 #define HWCE                            1           //HWC_DISPLAY_EXTERNAL
 #define HWCV                            2           //HWC_DISPLAY_VIRTUAL
 
-#define GHWC_VERSION                    "2.071"
-#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.071"
+#define GHWC_VERSION                    "2.072"
+#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.072"
 
 #ifdef GPU_G6110
 #if G6110_SUPPORT_FBDC
 #define FBDC_BGRA_8888                  0x125 //HALPixelFormatSetCompression(HAL_PIXEL_FORMAT_BGRA_8888,HAL_FB_COMPRESSION_DIRECT_16x4)
 #define FBDC_RGBA_8888                  0x121 //HALPixelFormatSetCompression(HAL_PIXEL_FORMAT_RGBA_8888,HAL_FB_COMPRESSION_DIRECT_16x4)
+
+#define GRALLOC_MODULE_SET_BUFFER_FORMAT_HINT_IMG 110
 
 //lcdc support fbdc format
 enum data_format {
@@ -134,6 +136,8 @@ FBDC_ARGB_888,
 FBDC_RGBX_888,
 FBDC_ABGR_888
 };
+
+#define IS_ALIGN(val,align)    (((val)&(align-1))==0)
 
 //G6110 support fbdc compression methods
 #define HAL_FB_COMPRESSION_NONE                0
@@ -644,6 +648,11 @@ typedef struct _hwcContext
     threadPamaters                 mRefresh;
 #endif
     threadPamaters                 mControlStereo;
+
+#if G6110_SUPPORT_FBDC
+    /*****************fbdc*****************************/
+    bool                           bFbdc;       //if contain fbdc layer,set it to true.
+#endif
 
     /************The index of video buffer will be used */
     int                            mCurVideoIndex;
