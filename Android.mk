@@ -20,8 +20,16 @@ LOCAL_SRC_FILES := \
 	rk_hwcomposer.cpp \
 	rk_hwc_com.cpp \
 	rga_api.cpp \
-	rk_hwcomposer_hdmi.cpp \
-	hwc_rga.cpp 
+	hwc_rga.cpp
+
+ifeq ($(strip $(TARGET_BOARD_PLATFORM)),rk3399)
+LOCAL_SRC_FILES += \
+	rk_hwcomposer_htg.cpp \
+	rk_hwcomposer_vop.cpp
+else
+LOCAL_SRC_FILES += \
+	rk_hwcomposer_hdmi.cpp
+endif
 
 ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),tablet)
 LOCAL_SRC_FILES += \
@@ -64,7 +72,8 @@ LOCAL_SHARED_LIBRARIES := \
 	libcutils \
 	libion \
 	libhardware_legacy \
-	libsync 
+	libsync \
+	libui
 
 
 

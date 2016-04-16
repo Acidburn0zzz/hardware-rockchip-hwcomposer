@@ -119,8 +119,8 @@
 #define HWCE                            1           //HWC_DISPLAY_EXTERNAL
 #define HWCV                            2           //HWC_DISPLAY_VIRTUAL
 
-#define GHWC_VERSION                    "2.072"
-#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.072"
+#define GHWC_VERSION                    "2.073"
+#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.073"
 
 #ifdef GPU_G6110
 #if G6110_SUPPORT_FBDC
@@ -675,6 +675,8 @@ typedef struct _hwcContext
 #endif
     buffer_handle_t                mDimHandle;
 #endif
+    int                            g_hdmi_mode;
+    void*                          vopctx;
 }
 hwcContext;
 #define rkmALIGN(n, align) \
@@ -769,6 +771,8 @@ hwcUnlockBuffer(
 #endif
 int hwChangeRgaFormat(IN int fmt );
 int hwcGetBufferSizeForRga(IN int w,IN int h,IN int fmt);
+int init_thread_pamaters(threadPamaters* mThreadPamaters);
+int free_thread_pamaters(threadPamaters* mThreadPamaters);
 
 #if defined(__arm64__) || defined(__aarch64__)
 

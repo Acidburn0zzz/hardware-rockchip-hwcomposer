@@ -11,6 +11,7 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include "rk_hwcomposer.h"
+#include "rk_hwcomposer_api.h"
 #include <hardware/hardware.h>
 
 #include <sys/prctl.h>
@@ -8870,6 +8871,12 @@ hwc_device_open(
     }
     memset(context, 0, sizeof (hwcContext));
 
+#ifdef TARGET_BOARD_PLATFORM_RK3399
+    if(vop_init_devices(&context->vopctx))
+        hwcONERROR(hwcRGA_OPEN_ERR);
+
+    vop_dump(context->vopctx);
+#endif
     context->fbFd = open("/dev/graphics/fb0", O_RDWR, 0);
     if(context->fbFd < 0)
     {
@@ -9361,7 +9368,12 @@ hwc_device_open(
     return 0;
 
 OnError:
-
+#ifdef TARGET_BOARD_PLATFORM_RK3399
+    if(context->vopctx)
+    {
+        vop_free_devices(&(context->vopctx));
+    }
+#endif
     if (context->vsync_fd > 0)
     {
         close(context->vsync_fd);
@@ -9425,7 +9437,6 @@ int  getHdmiMode()
     // LOGD("g_hdmi_mode=%d",g_hdmi_mode);
 #endif
     // LOGD("g_hdmi_mode=%d",g_hdmi_mode);
-
     return g_hdmi_mode;
 }
 
