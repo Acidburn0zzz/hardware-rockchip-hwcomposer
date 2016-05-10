@@ -263,6 +263,13 @@ int hwc_init_version()
 #ifdef RK3368_MID
     strcat(acVersion,"-3368MID");
 #endif
+#ifdef RK3399_BOX
+	strcat(acVersion,"-3399BOX");
+#endif
+#ifdef RK3366_BOX
+	strcat(acVersion,"-3366BOX");
+#endif
+
     property_set("sys.ghwc.version", acVersion);
     ALOGD(RK_GRAPHICS_VER);
     return 0;
@@ -724,9 +731,9 @@ bool is_need_post(hwc_display_contents_1_t *list,int dpyID,int flag)
 #endif
     switch(flag) {
         case 0://hotplug device not realdy,so we not post:from set_screen
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
             if(hdmi_noready && dpyID == HWCE) {
-#if (defined(RK3368_BOX) || defined(RK3288_BOX))
+#if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
                 if((!hdmi_noready && is_hotplug_connected())) {
                     hotplug_set_frame(_contextAnchor,0);
                 }
@@ -737,14 +744,14 @@ bool is_need_post(hwc_display_contents_1_t *list,int dpyID,int flag)
             break;
 
         case 1://hotplug is realdy so primary not post:from fb_post
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
             if((!hdmi_noready && is_hotplug_connected()) && dpyID==0) {
                 return false;
             }
 #endif
             break;
         case 2://hotplug is realdy so primary not post:from set_lcdc
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
             if(!(hdmi_noready || dpyID == HWCE)) {
                 return false;
             }
@@ -796,7 +803,7 @@ bool is_gpu_or_nodraw(hwc_display_contents_1_t *list,int dpyID)
         }
     }
 #endif
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
     if(!hdmi_noready  && dpyID == HWCP && is_hotplug_connected()) {
         for (unsigned int i = 0; i < (list->numHwLayers - 1); i++) {
             hwc_layer_1_t * layer = &list->hwLayers[i];
@@ -851,7 +858,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
     int factor =1;
     bool firsttfrmbyrga = true;
     Context->mMultiwindow = false;
-#if (defined(RK3368_BOX) || defined(RK3288_BOX))
+#if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
     bool NeedScale = false;
     bool NeedFullScreen = false;
     char value[PROPERTY_VALUE_MAX];
@@ -879,7 +886,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         bool trsfrmbyrga = false;
         int glesPixels = 0;
         int overlayPixels = 0;
-#if (defined(RK3368_BOX) || defined(RK3288_BOX))
+#if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
         int d_w = 0;  //external weight & height
         int d_h = 0;
         int s_w = 0;
@@ -1018,7 +1025,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             dstRects[0].top    = DstRect->top;
             dstRects[0].right  = DstRect->right;
             dstRects[0].bottom = DstRect->bottom;
-#if (defined(RK3368_BOX) || defined(RK3288_BOX))
+#if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
             if(Context == _contextAnchor1 && NeedScale){
                 s_w = SrcRect->right - SrcRect->left;
                 s_h = SrcRect->bottom - SrcRect->top;
@@ -1067,7 +1074,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         Context->zone_manager.zone_info[j].is_stretch = is_stretch;
         if(SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO
             || SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12){
-#if (defined(RK3368_BOX) || defined(RK3288_BOX))
+#if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
             if(Context == _contextAnchor1 && NeedScale){
                 Context->zone_manager.zone_info[j].is_stretch = true;
             }
@@ -1370,7 +1377,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             Context->zone_manager.zone_info[j].is_large = 1; 
         }else
             Context->zone_manager.zone_info[j].is_large = 0; 
-#if (defined(RK3368_BOX) || defined(RK3288_BOX))
+#if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
         if((SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO ||
             SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12) &&(Context == _contextAnchor1 && NeedScale)){
             Context->zone_manager.zone_info[j].disp_rect.left  = DstRectScale.left;  
@@ -4698,7 +4705,7 @@ check_layer(
 #endif
           )
 #endif
-#if !(defined(GPU_G6110) || defined(RK3288_BOX))
+#if !(defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
         || skip_count<10 
 #endif
         || (handle->type == 1 && !_contextAnchor->iommuEn)
@@ -6589,7 +6596,7 @@ int hwc_pre_prepare(hwc_display_contents_1_t** displays, int flag)
     }
 #endif
 
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
 #ifdef RK3288_BOX
     if(contextp->mLcdcNum == 2){
         return 0;
@@ -7141,7 +7148,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
             goto GpuComP;
         }
     }
-#if (defined(RK3368_BOX) || defined(RK3288_BOX))
+#if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
 #ifdef RK3288_BOX
 	if(_contextAnchor->mLcdcNum == 1)
 #endif
@@ -7245,7 +7252,7 @@ hwc_prepare(
                 list_e->hwLayers[i].compositionType = HWC_FRAMEBUFFER;
             }
         }    
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
 #ifdef RK3288_BOX
         if(context->mLcdcNum == 2){
             return 0;
@@ -7457,7 +7464,7 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
                 }
             }
          }else{
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
 #ifdef RK3288_BOX
             if(_contextAnchor->mLcdcNum==1)
 #endif
@@ -7568,7 +7575,7 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
                 }
             }
         } else {
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
 #ifdef RK3288_BOX
             if(_contextAnchor->mLcdcNum==1)
 #endif
@@ -8071,7 +8078,7 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
         ret = hwc_set_lcdc(context,list,2);
     }
 
-#if !(defined(GPU_G6110) || defined(RK3288_BOX))
+#if !(defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
     if(dpyID == HWCP)
 #endif
     {
@@ -8191,7 +8198,7 @@ hwc_set(
 {
     ATRACE_CALL();
     int ret[4] = {0,0,0,0};
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
 #ifdef RK3288_BOX
     if(_contextAnchor->mLcdcNum==1) {
         if(getHdmiMode() == 1 || _contextAnchor->mHdmiSI.CvbsOn) {
@@ -8373,7 +8380,7 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
         return;
     }
     bool isNeedRemove = true;
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
 #ifdef RK3288_BOX
     if(context->mLcdcNum == 1){
 #endif
@@ -8433,7 +8440,7 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
 #endif
         context->dpyAttr[HWC_DISPLAY_EXTERNAL].connected = false;
         context->procs->hotplug(context->procs, HWC_DISPLAY_EXTERNAL, 0);
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
     if(context->mLcdcNum == 1){
         hotplug_set_overscan(1);
     }
@@ -8481,7 +8488,7 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
         pthread_mutex_unlock(&context->mRefresh.mlk);
         pthread_cond_signal(&context->mRefresh.cond);
 #endif
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
     if(context->mLcdcNum == 1){
         hotplug_set_overscan(0);
     }
@@ -9121,7 +9128,7 @@ hwc_device_open(
         mUsedVopNum = 2;
     }
 #endif
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
     if(context->mLcdcNum == 1){
         context->screenFd = open("/sys/class/graphics/fb0/screen_info", O_RDONLY);
         if(context->screenFd <= 0){
@@ -9592,8 +9599,8 @@ int hotplug_get_config(int flag){
 	info.grayscale = 0;
 	info.grayscale |= info.xres<< 8;
 	info.grayscale |= info.yres<<20;
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
-#ifdef RK3288_BOX
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
+#if defined(RK3288_BOX) || defined(RK3399_BOX)
     if(_contextAnchor->mLcdcNum == 1){
         if(_contextAnchor->fbFd > 0){
             fd  =  _contextAnchor->fbFd;
@@ -9633,7 +9640,7 @@ int hotplug_get_config(int flag){
 	    ALOGE("hotplug_get_config:open /dev/graphics/fb4 fail");
         return -errno;
 	}
-#ifndef GPU_G6110
+#if !(defined(GPU_G6110) || defined(TARGET_BOARD_PLATFORM_RK3399))
 #ifdef RK3288_BOX
     if(_contextAnchor->mLcdcNum == 2){
         info.reserved[3] |= 1;
@@ -9656,7 +9663,7 @@ int hotplug_get_config(int flag){
         _contextAnchor->fd_3d = context->fd_3d;
     }
 
-#if (defined(RK3368_BOX) || defined(RK3288_BOX))
+#if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
     if(flag == 1){
         char buf[100];
         int width = 0;
@@ -9851,7 +9858,7 @@ int hotplug_get_config(int flag){
     context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_vh;
 #endif
     _contextAnchor1 = context;
-#ifndef GPU_G6110
+#if !(defined(GPU_G6110) || defined(RK3399_BOX))
 #ifdef RK3288_BOX
     if(_contextAnchor->mLcdcNum == 2)
 #endif
@@ -10074,7 +10081,7 @@ void *hotplug_try_register(void *arg)
         handle_hotplug_event(1, 6);
 		ALOGI("hotplug_try_register at line = %d",__LINE__);
     }else{
-#if (defined(RK3368_BOX) || defined(RK3288_BOX))
+#if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
 #if RK3288_BOX
         if(context->mLcdcNum == 1){
             handle_hotplug_event(1, 1);
@@ -10086,7 +10093,7 @@ void *hotplug_try_register(void *arg)
 #endif
 #endif
     }
-#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
 #if RK3288_BOX
     if(context->mLcdcNum == 2){
         goto READY;

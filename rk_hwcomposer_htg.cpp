@@ -80,6 +80,7 @@ void rk_check_hdmi_uevents(const char *buf,int len)
     ret = rk_parse_uevent_buf(buf,&screenType,&statusFlag,&fbIndex,&vopId,len);
     if(ret != 1) return;
     hdmiStatus = rk_check_hdmi_state();
+    g_hdmi_mode = hdmiStatus;
     handle_hotplug_event(statusFlag,screenType);
     ALOGI("uevent receive!type=%d,flag=%d,line=%d",screenType,statusFlag,__LINE__);
 
