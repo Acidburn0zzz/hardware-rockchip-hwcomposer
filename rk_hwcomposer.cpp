@@ -7558,7 +7558,7 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
     //if(!context->fb_blanked)
     if(true) {
     //This will lead nenamark fps go down in rk3368 and will error for 3366
-#if (!defined(GPU_G6110) && !defined(TARGET_BOARD_PLATFORM_RK3366))
+#if (!defined(GPU_G6110) && !defined(TARGET_BOARD_PLATFORM_RK3366) && !defined(TARGET_BOARD_PLATFORM_RK3399))
         if(context != _contextAnchor1) {
             hwc_display_t dpy = NULL;
             hwc_surface_t surf = NULL;
