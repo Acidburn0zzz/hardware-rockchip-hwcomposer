@@ -6332,7 +6332,8 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
 #endif
 
 #if VIDEO_UI_OPTIMATION
-    if(fb_info.win_par[0].area_par[0].data_format == HAL_PIXEL_FORMAT_YCrCb_NV12_OLD
+    if((fb_info.win_par[0].area_par[0].data_format == HAL_PIXEL_FORMAT_YCrCb_NV12_OLD
+        || fb_info.win_par[0].area_par[0].data_format ==  HAL_PIXEL_FORMAT_YCrCb_NV12_10_OLD)
         && list->numHwLayers == 3)  // @ video & 2 layers
     {
         bool IsDiff = true;

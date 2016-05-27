@@ -113,14 +113,15 @@
 #define VIDEO_PLAY_ACTIVITY_LAYER_NAME  "android.rk.RockVideoPlayer/android.rk.RockVideoPlayer.VideoP"
 #define RK_QUEDDR_FREQ                  0x8000
 #define HAL_PIXEL_FORMAT_YCrCb_NV12_OLD 0x20
+#define HAL_PIXEL_FORMAT_YCrCb_NV12_10_OLD 0x22
 #define ATRACE_TAG                      ATRACE_TAG_GRAPHICS
 
 #define HWCP                            0           //HWC_DISPLAY_PRIMARY
 #define HWCE                            1           //HWC_DISPLAY_EXTERNAL
 #define HWCV                            2           //HWC_DISPLAY_VIRTUAL
 
-#define GHWC_VERSION                    "2.074"
-#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.074"
+#define GHWC_VERSION                    "2.076"
+#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.076"
 
 #ifdef GPU_G6110
 #if G6110_SUPPORT_FBDC
