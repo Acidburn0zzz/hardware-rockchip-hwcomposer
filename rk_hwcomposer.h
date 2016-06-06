@@ -56,7 +56,7 @@
 #define SUPPORTFORCE3D                  1           //1:can be force 3D,but android 4.4
 #define USE_WM_SIZE                     0           //1:use wm command,now bootanimation source error sometimes
 #define VIDEO_UI_OPTIMATION             1           //1:support,so we can reduce the bandwidth
-#define HTGFORCEREFRESH                 0           //1:some customer not use rk's setting apk,hwc need refesh
+#define HTGFORCEREFRESH                 1           //1:some customer not use rk's setting apk,hwc need refesh
 
 #ifdef GPU_G6110
 #define G6110_SUPPORT_FBDC              0
@@ -120,8 +120,8 @@
 #define HWCE                            1           //HWC_DISPLAY_EXTERNAL
 #define HWCV                            2           //HWC_DISPLAY_VIRTUAL
 
-#define GHWC_VERSION                    "2.076"
-#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.076"
+#define GHWC_VERSION                    "2.077"
+#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.077"
 
 #ifdef GPU_G6110
 #if G6110_SUPPORT_FBDC
@@ -629,6 +629,7 @@ typedef struct _hwcContext
     /*****************policy *****************************/
     bool                           mMultiwindow;
     int                            mLastCompType;
+    int                            mOneWinOpt;
 
     int (*fun_policy[HWC_POLICY_NUM])(void * ,hwc_display_contents_1_t*);
 

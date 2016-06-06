@@ -60,6 +60,9 @@ static int  hwc_event_control(struct hwc_composer_device_1* dev,int dpy,int even
 static int  hwc_prepare(hwc_composer_device_1_t * dev,size_t numDisplays,hwc_display_contents_1_t** displays);
 static int  hwc_set(hwc_composer_device_1_t * dev,size_t numDisplays,hwc_display_contents_1_t  ** displays);
 static int  hwc_device_close(struct hw_device_t * dev);
+static int  hwc_alloc_buffer(buffer_handle_t *hnd, int w,int h,int *s,int fmt,int usage);
+static int  hwc_free_buffer(buffer_handle_t hnd);
+
 
 int         hwc_sprite_replace(hwcContext * Context, hwc_display_contents_1_t * list);
 void*       hwc_control_3dmode_thread(void *arg);
@@ -6039,6 +6042,70 @@ int hwc_add_fbinfo(hwcContext * context, hwc_display_contents_1_t *list,struct r
     return 0;
 }
 
+int hwc_add_write_back(hwcContext * context, buffer_handle_t *hnd,
+    struct rk_fb_win_cfg_data *fbinfo1, struct rk_fb_win_cfg_data *fbinfo2)
+{
+#if 0
+    int w,h,s,fmt,usage;
+    w = context->fbhandle.width;
+    h = context->fbhandle.height;
+    fmt = HAL_PIXEL_FORMAT_BGRA_8888;
+
+    usage = GRALLOC_USAGE_HW_COMPOSER | GRALLOC_USAGE_HW_RENDER;
+
+    int ret = hwc_alloc_buffer(hnd,w,h,&s,fmt,usage);
+
+    if (ret) {
+        ALOGE("alloc buffer fail");
+        return ret;
+    }
+
+    struct private_handle_t*  handle = (struct private_handle_t*)*hnd;
+    if (!handle) {
+		ALOGE("hanndle=NULL at line %d",__LINE__);
+        return -EINVAL;
+    }
+
+    fbinfo1->wb_cfg.data_format = fmt;
+    fbinfo1->wb_cfg.ion_fd = handle->share_fd;
+    fbinfo1->wb_cfg.phy_addr = 0;
+	fbinfo1->wb_cfg.xsize = w;
+    fbinfo1->wb_cfg.ysize = h;
+
+    memset(fbinfo2,0,sizeof(struct rk_fb_win_cfg_data));
+    fbinfo2->ret_fence_fd = -1;
+    for(int i=0;i<RK_MAX_BUF_NUM;i++) {
+        fbinfo2->rel_fence_fd[i] = -1;
+    }
+
+    fbinfo2->win_par[0].area_par[0].data_format = fmt;
+
+    fbinfo2->win_par[0].win_id = 0;
+    fbinfo2->win_par[0].z_order = 0;
+    fbinfo2->win_par[0].area_par[0].ion_fd = handle->share_fd;
+    fbinfo2->win_par[0].area_par[0].acq_fence_fd = -1;
+
+    fbinfo2->win_par[0].area_par[0].x_offset = 0;
+    fbinfo2->win_par[0].area_par[0].y_offset = 0;
+    fbinfo2->win_par[0].area_par[0].xpos = 0;
+    fbinfo2->win_par[0].area_par[0].ypos = 0;
+    fbinfo2->win_par[0].area_par[0].xsize = w;
+    fbinfo2->win_par[0].area_par[0].ysize = h;
+    fbinfo2->win_par[0].area_par[0].xact = w;
+    fbinfo2->win_par[0].area_par[0].yact = h;
+    fbinfo2->win_par[0].area_par[0].xvir = w;
+    fbinfo2->win_par[0].area_par[0].yvir = h;
+	fbinfo2->wait_fs = 0;
+
+    ret = 0;
+
+    return ret;
+#else
+    return 0;
+#endif
+}
+
+
 bool hwc_check_cfg(hwcContext * ctx,struct rk_fb_win_cfg_data fb_info)
 {
     bool ret = true;
@@ -7168,7 +7235,12 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         }
 #endif
     }
+
     context->mLastCompType = context->zone_manager.mCmpType;
+
+    if (context->mOneWinOpt)
+        goto GpuComP;
+
     return 0;
 GpuComP   :
     for (i = 0; i < (list->numHwLayers - 1); i++)
@@ -7202,6 +7274,7 @@ GpuComP   :
     }
     context->zone_manager.composter_mode = HWC_FRAMEBUFFER;
     context->mLastCompType = -1;
+    context->mOneWinOpt = false;
     return 0;
 
 }
@@ -7432,7 +7505,7 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
         else
 #endif
             fb_info.win_par[0].area_par[0].data_format = context->fbhandle.format;
-        fb_info.win_par[0].win_id = 0;
+        fb_info.win_par[0].win_id = 2;
         fb_info.win_par[0].z_order = 0;
         fb_info.win_par[0].area_par[0].ion_fd = handle->share_fd;
 #if USE_HWC_FENCE
@@ -7537,6 +7610,10 @@ UseFence:
 static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int mix_flag) 
 {
     ATRACE_CALL();
+    buffer_handle_t handle = 0;
+    struct rk_fb_win_cfg_data fbwb;
+    struct hwc_fb_info hfi;
+
     int fd1 = -1;
     int fd2 = -1;
     int dpyID = 0;
@@ -7547,7 +7624,7 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
     if(!is_need_post(list,dpyID,2)) {
         return -1;
     }
-    struct hwc_fb_info hfi;
+
     //struct rk_fb_win_cfg_data fb_info;
     int comType = context->zone_manager.mCmpType;
     hwc_collect_cfg(context,list,&hfi,mix_flag,false);
@@ -7556,6 +7633,13 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
         hwc_add_fbinfo(context,list,&(hfi.fb_info));
 #endif
     }
+
+#if 0
+    if (context->mOneWinOpt) {
+        int ret = hwc_add_write_back(context,&handle,&(hfi.fb_info),&fbwb);
+        context->mOneWinOpt = ret ? false : true;
+    }
+#endif
     //if(!context->fb_blanked)
     if(true) {
     //This will lead nenamark fps go down in rk3368 and will error for 3366
@@ -7676,6 +7760,28 @@ UseFence:
     	}
         list->retireFenceFd = -1;
     }
+
+#if 0
+    if (context->mOneWinOpt) {
+        context->mOneWinOpt = false;
+        if(ioctl(context->fbFd, RK_FBIOSET_CONFIG_DONE, &fbwb)) {
+            ALOGE("ID=%d:ioctl fail fbwb:%s",dpyID,strerror(errno));
+            dump_config_info(fbwb,context,3);
+        } else {
+            ALOGD_IF(1,"vop write back config ID=%d:",dpyID);
+            dump_config_info(fbwb,context,5);
+        }
+        hwc_free_buffer(handle);
+        for(int i = 0; i < RK_MAX_BUF_NUM; i++) {
+            if(fbwb.rel_fence_fd[i] >= 0 ) {
+                close(fbwb.rel_fence_fd[i]);
+    	    }
+    	}
+        if(fbwb.ret_fence_fd >= 0) {
+            close(fbwb.ret_fence_fd);
+        }
+    }
+#endif
     return 0;
 }
 
@@ -7953,6 +8059,76 @@ OnError:
 #else
     return 0;
 #endif
+}
+
+static void hwc_static_screen_opt_handler(int sig)
+{
+#if HTGFORCEREFRESH
+    hwcContext * context = _contextAnchor;
+    if (sig == SIGALRM) {
+        context->mOneWinOpt = true;
+        pthread_mutex_lock(&context->mRefresh.mlk);
+        context->mRefresh.count = 100;
+        ALOGD_IF(log(HLLTWO),"Htg:mRefresh.count=%d",context->mRefresh.count);
+        pthread_mutex_unlock(&context->mRefresh.mlk);
+        pthread_cond_signal(&context->mRefresh.cond);
+    }
+#endif
+
+    return;
+}
+
+static int hwc_static_screen_opt_set()
+{
+    hwcContext * context = _contextAnchor;
+
+    struct itimerval tv = {{0,0},{0,0}};
+    if (-1 != context->mLastCompType) {
+        int msec = 0;
+        char value[100];
+        property_get("sys.vwb.time",value,"2500");
+        msec = atoi(value);
+        if (msec > 5000)
+            msec = 5000;
+        if (msec < 250)
+            msec = 250;
+        tv.it_value.tv_usec = (msec % 1000)*1000;
+        tv.it_value.tv_sec = msec / 1000;
+        setitimer(ITIMER_REAL, &tv, NULL);
+        //ALOGD("reset timer!");
+    } else {
+        tv.it_value.tv_usec = 0;
+        setitimer(ITIMER_REAL, &tv, NULL);
+        ALOGD_IF(log(HLLTWO),"close timer!");
+    }
+    return 0;
+}
+
+static int hwc_alloc_buffer(buffer_handle_t *hnd, int w,int h,int *s,int fmt,int usage)
+{
+    int stride_gr = 0;
+    hwcContext * context = _contextAnchor;
+
+    int err = context->mAllocDev->alloc(context->mAllocDev, w, h, fmt, usage, hnd,
+                                                                       &stride_gr);
+    if (!err) {
+        struct private_handle_t*handle = (struct private_handle_t*)hnd;
+        ALOGD("Dim buffer alloc fd [%dx%d,f=%d],fd=%d ",handle->width,
+                            handle->height,handle->format,handle->share_fd);
+    } else
+        ALOGE("Dim buffer alloc faild");
+
+    return err;
+}
+
+static int hwc_free_buffer(buffer_handle_t hnd)
+{
+    hwcContext * context = _contextAnchor;
+	if(context && hnd){
+        int err = context->mAllocDev->free(context->mAllocDev, hnd);
+        ALOGW_IF(err,"free mDimHandle failed %d (%s)", err, strerror(-err));
+	}
+    return true;
 }
 
 int hwc_check_fencefd(size_t numDisplays,hwc_display_contents_1_t  ** displays)
@@ -8244,6 +8420,8 @@ hwc_set(
         ALOGW_IF(log(HLLONE),"%d,ret[%d,%d]",numDisplays,ret[0],ret[1]);
     }
 #endif
+
+    hwc_static_screen_opt_set();
     return 0;
 }
 
@@ -8879,7 +9057,7 @@ hwc_device_open(
     }
     memset(context, 0, sizeof (hwcContext));
 
-#ifdef TARGET_BOARD_PLATFORM_RK3399
+#if 0//def TARGET_BOARD_PLATFORM_RK3399
     if(vop_init_devices(&context->vopctx))
         hwcONERROR(hwcRGA_OPEN_ERR);
 
@@ -9003,6 +9181,7 @@ hwc_device_open(
     context->mVideoRotate = false;
     context->mGtsStatus   = false;
     context->mTrsfrmbyrga = false;
+    context->mOneWinOpt = false;
 
 #if GET_VPU_INTO_FROM_HEAD
     /* initialize params of video source info*/
@@ -9372,6 +9551,7 @@ hwc_device_open(
         LOGD("Create hwc_control_3dmode_thread thread error .");
     }
 #endif
+    signal(SIGALRM, hwc_static_screen_opt_handler);
 
     return 0;
 
@@ -9756,6 +9936,7 @@ int hotplug_get_config(int flag){
     context->mVideoRotate = false;
     context->mGtsStatus   = false;
     context->mTrsfrmbyrga = false;
+    context->mOneWinOpt = false;
 
     context->fb_fps = refreshRate / 1000.0f;
 
