@@ -413,6 +413,202 @@ void hwc_sync_release(hwc_display_contents_1_t  *list)
    
 }
 
+int rgaRotateScale(hwcContext * ctx,int tranform,int fd_dst, int Dstfmt,bool isTry)
+{
+    ATRACE_CALL();
+    struct rga_req  Rga_Request;
+    RECT clip;
+    unsigned char RotateMode = 0;
+    int Rotation = 0;
+    int SrcVirW,SrcVirH,SrcActW,SrcActH;
+    int DstVirW,DstVirH,DstActW,DstActH;
+    int xoffset = 0;
+    int yoffset = 0;
+    int   rga_fd = _contextAnchor->engine_fd;
+    hwcContext * context = ctx;
+    struct private_handle_t *handle = context->mRgaTBI.hdl;
+    hwc_rect_t * psrc_rect = &context->mRgaTBI.zone_info.src_rect;
+    hwc_rect_t * pdst_rect = &context->mRgaTBI.zone_info.disp_rect;
+    int src_stride = context->mRgaTBI.zone_info.stride;
+    int src_width = context->mRgaTBI.zone_info.width;
+    int src_height = context->mRgaTBI.zone_info.height;
+
+    int index_v = context->mCurVideoIndex%MaxVideoBackBuffers;
+    if (rga_fd < 0) {
+       return -1;
+    }
+
+    if(context->base_video_bk[index_v] == 0) {
+        ALOGE("It hasn't direct_base for dst buffer");
+        return -1;
+    }
+
+    Dstfmt = RK_FORMAT_YCbCr_420_SP;
+    //pthread_mutex_lock(&_contextAnchor->lock);
+    memset(&Rga_Request, 0x0, sizeof(Rga_Request));
+
+    switch (tranform){
+        case HWC_TRANSFORM_ROT_90:
+            RotateMode      = 1;
+            Rotation    = 90;
+            SrcVirW = src_stride;
+            SrcVirH = src_height;
+            SrcActW = psrc_rect->bottom - psrc_rect->top;
+            SrcActH = psrc_rect->right - psrc_rect->left;
+            DstVirW = rkmALIGN(pdst_rect->right - pdst_rect->left,32);
+            DstVirH = pdst_rect->bottom - pdst_rect->top;
+            DstActW = pdst_rect->bottom - pdst_rect->top;
+            DstActH = pdst_rect->right - pdst_rect->left;
+
+            DstVirH -= DstVirH % 2;
+            DstActW -= DstActW % 2;
+            DstActH -= DstActH % 2;
+
+            xoffset = DstActH - 1;
+            yoffset = 0;
+
+            break;
+
+        case HWC_TRANSFORM_ROT_180:
+            RotateMode      = 1;
+            Rotation    = 180;
+            SrcVirW = src_stride;
+            SrcVirH = src_height;
+            SrcActW = psrc_rect->right - psrc_rect->left;
+            SrcActH = psrc_rect->bottom - psrc_rect->top;
+            DstVirW = rkmALIGN(pdst_rect->right - pdst_rect->left,32);
+            DstVirH = pdst_rect->bottom - pdst_rect->top;
+            DstActW = pdst_rect->right - pdst_rect->left;
+            DstActH = pdst_rect->bottom - pdst_rect->top;
+
+            DstVirH -= DstVirH % 2;
+            DstActW -= DstActW % 2;
+            DstActH -= DstActH % 2;
+
+            xoffset = DstActW - 1;
+            yoffset = DstActH - 1;
+            clip.xmin = 0;
+            clip.xmax =  handle->width - 1;
+            clip.ymin = 0;
+            clip.ymax = handle->height - 1;
+
+            break;
+
+        case HWC_TRANSFORM_ROT_270:
+            RotateMode      = 1;
+            Rotation        = 270;
+            SrcVirW = src_stride;
+            SrcVirH = src_height;
+            SrcActW = psrc_rect->bottom - psrc_rect->top;
+            SrcActH = psrc_rect->right - psrc_rect->left;
+            DstVirW = rkmALIGN(pdst_rect->right - pdst_rect->left,32);
+            DstVirH = pdst_rect->bottom - pdst_rect->top;
+            DstActW = pdst_rect->bottom - pdst_rect->top;
+            DstActH = pdst_rect->right - pdst_rect->left;
+
+            DstVirH -= DstVirH % 2;
+            DstActW -= DstActW % 2;
+            DstActH -= DstActH % 2;
+
+            xoffset = 0;
+            yoffset = DstActW - 1;
+            break;
+        case 0:
+        default:
+        {
+            SrcVirW = src_stride;
+            SrcVirH = src_height;
+            SrcActW = psrc_rect->right - psrc_rect->left;
+            SrcActH = psrc_rect->bottom - psrc_rect->top;
+            DstVirW = rkmALIGN(pdst_rect->right - pdst_rect->left,32);
+            DstVirH = pdst_rect->bottom - pdst_rect->top;
+            DstActW = pdst_rect->right - pdst_rect->left;
+            DstActH = pdst_rect->bottom - pdst_rect->top;
+
+            DstVirH -= DstVirH % 2;
+            DstActW -= DstActW % 2;
+            DstActH -= DstActH % 2;
+
+            xoffset = 0;
+            yoffset = 0;
+
+            clip.xmin = 0;
+            clip.xmax = DstActW - 1;
+            clip.ymin = 0;
+            clip.ymax = DstActH - 1;
+            break;
+        }
+    }
+    int size = hwcGetBufferSizeForRga(DstActW,DstActH,Dstfmt) ;
+    if(size > RLAGESIZE){
+        ALOGD_IF(log(HLLSEV),"now size=%d,largesize=%d,w_h_f[%d,%d,%d]",size,RLAGESIZE,DstActW,DstActH,Dstfmt);
+        return -1;
+    }
+    if(DstVirW > 4096 || DstVirH > 4096 || DstActW > 4096 || DstActH > 4096)
+        return -1;
+
+    if(isTry)
+        return 0;
+
+    ALOGD_IF(log(HLLSIX),"src addr=[%x],w-h[%d,%d],act[%d,%d][f=%d]",
+        handle->share_fd, SrcVirW, SrcVirH,SrcActW,SrcActH,hwChangeRgaFormat(handle->format));
+    ALOGD_IF(log(HLLSIX),"dst fd=[%x],Index=%d,w-h[%d,%d],act[%d,%d][%d,%d][f=%d],rot=%d,rot_mod=%d",
+        fd_dst, index_v, DstVirW, DstVirH,DstActW,DstActH,xoffset,yoffset,Dstfmt,Rotation,RotateMode);
+
+    if(handle->type == 1)
+        RGA_set_src_vir_info(&Rga_Request, 0, (unsigned long)(GPU_BASE), 0,SrcVirW, SrcVirH, hwChangeRgaFormat(handle->format), 0);
+    else
+        RGA_set_src_vir_info(&Rga_Request, handle->share_fd, 0, 0,SrcVirW, SrcVirH, hwChangeRgaFormat(handle->format), 0);
+
+    RGA_set_dst_vir_info(&Rga_Request, fd_dst, 0, 0,DstVirW,DstVirH,&clip, Dstfmt, 0);
+    RGA_set_bitblt_mode(&Rga_Request, 0, RotateMode,Rotation,0,0,0);
+    RGA_set_src_act_info(&Rga_Request,SrcActW,SrcActH, 0,0);
+    RGA_set_dst_act_info(&Rga_Request,DstActW,DstActH, xoffset,yoffset);
+
+//debug: clear source data
+#if 0
+    memset((void*)handle->base,0x0,SrcVirW*SrcVirH*3/2);
+#endif
+
+    if(handle->type == 1) {
+        RGA_set_dst_vir_info(&Rga_Request, 0,context->base_video_bk[index_v], 0,DstVirW,DstVirH,&clip, Dstfmt, 0);
+        RGA_set_mmu_info(&Rga_Request, 1, 0, 0, 0, 0, 2);
+        Rga_Request.mmu_info.mmu_flag |= (1<<31) | (1<<10) | (1<<8);
+    }
+
+    if(context->relFenceFd[index_v] > 0) {
+        ALOGD_IF(log(HLLSIX),"Goto dst sync wait %d",context->relFenceFd[index_v]);
+        sync_wait(context->relFenceFd[index_v],-1);
+        close(context->relFenceFd[index_v]);
+        context->relFenceFd[index_v] = -1;
+    }
+    if(ioctl(rga_fd, RGA_BLIT_SYNC, &Rga_Request)) {
+        LOGE(" %s(%d) RGA_BLIT fail",__FUNCTION__, __LINE__);
+    }
+#if 0
+    FILE * pfile = NULL;
+    int srcStride = 2;
+    char layername[100];
+
+    if(hwc_get_int_property("sys.hwc.dump_after_rga_copy","0"))
+    {
+        memset(layername,0,sizeof(layername));
+        system("mkdir /data/dumplayer/ && chmod /data/dumplayer/ 777 ");
+        sprintf(layername,"/data/dumplayer/dmlayer%d_%d_%d.bin",\
+               DstActW,DstVirH,DstVirW);
+
+        pfile = fopen(layername,"wb");
+        if(pfile)
+        {
+            fwrite((const void *)(context->base_video_bk[index_v]),(size_t)(DstVirW * DstVirH * 2),1,pfile);
+            fclose(pfile);
+        }
+    }
+#endif
+
+    return 0;
+}
+
 int rga_video_copybit(struct private_handle_t *handle,int tranform,int w_valid,int h_valid,int fd_dst, int Dstfmt,int specialwin,int dpyID,bool isTry)
 {
     ATRACE_CALL();
@@ -426,23 +622,27 @@ int rga_video_copybit(struct private_handle_t *handle,int tranform,int w_valid,i
     int yoffset = 0;
     int   rga_fd = _contextAnchor->engine_fd;
     hwcContext * context = _contextAnchor;
+
     if(dpyID == HWCE){
         context = _contextAnchor1;
     }
+
     int index_v = context->mCurVideoIndex%MaxVideoBackBuffers;
+
     if (rga_fd < 0 || !handle) {
        return -1; 
     }
-    if(_contextAnchor->video_fmt != HAL_PIXEL_FORMAT_YCrCb_NV12 && !specialwin) {
+
+    if (_contextAnchor->video_fmt != HAL_PIXEL_FORMAT_YCrCb_NV12 && !specialwin) {
         return -1;
     }
 
-    if(specialwin && context->base_video_bk[index_v]==0) {
+    if(specialwin && context->base_video_bk[index_v] == 0) {
         ALOGE("It hasn't direct_base for dst buffer");
         return -1;
     }
 
-    if((handle->video_width <= 0 || handle->video_height <= 0 ||
+    if ((handle->video_width <= 0 || handle->video_height <= 0 ||
        handle->video_width >= 8192 || handle->video_height >= 4096 )&&!specialwin) {
         ALOGE("rga invalid w_h[%d,%d]",handle->video_width , handle->video_height);
         return -1;
@@ -517,14 +717,14 @@ int rga_video_copybit(struct private_handle_t *handle,int tranform,int w_valid,i
                // Dstfmt = RK_FORMAT_RGB_565;
 			//else 
                // Dstfmt = RK_FORMAT_RGBA_8888;
-            SrcVirW = handle->video_width;
-            SrcVirH = handle->video_height;
-            SrcActW = handle->video_disp_width;
-            SrcActH = handle->video_disp_height;
-            DstVirW = handle->width;
-            DstVirH = handle->height;
-            DstActW = handle->video_disp_width;
-            DstActH = handle->video_disp_height;
+            SrcVirW =handle->video_width;
+            SrcVirH =handle->video_height;
+            SrcActW =handle->video_disp_width;
+            SrcActH =handle->video_disp_height;
+            DstVirW =handle->width;
+            DstVirH =handle->height;
+            DstActW =handle->video_disp_width;
+            DstActH =handle->video_disp_height;
             clip.xmin = 0;
             clip.xmax =  handle->width - 1;
             clip.ymin = 0;
@@ -859,6 +1059,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
     size_t i,j;
     int tsize = 0;
     int factor =1;
+    bool useRgaScale = false;
     bool firsttfrmbyrga = true;
     Context->mMultiwindow = false;
 #if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
@@ -1121,8 +1322,18 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         Context->zone_manager.zone_info[j].acq_fence_fd = layer->acquireFenceFd;
         Context->zone_manager.zone_info[j].pRelFenceFd = &(layer->releaseFenceFd);
 #endif
+        if (SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_10) {
+            if (vfactor < 4 && vfactor > 2 && hfactor < 4 && hfactor > 2)
+                useRgaScale = true;
+            else if (layer->transform)
+                useRgaScale = true;
+            trsfrmbyrga = useRgaScale;
+            Context->mTrsfrmbyrga |= useRgaScale;
+        }
+
         //firsttfrmbyrga:every display only support one layer trfmbyrga for too slow
-        if((SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO || (trsfrmbyrga)) && firsttfrmbyrga){
+        if((SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO
+                                                || (trsfrmbyrga)) && firsttfrmbyrga){
             firsttfrmbyrga = false;
             int w_valid = 0 ,h_valid = 0;
 #if USE_VIDEO_BACK_BUFFERS
@@ -1158,7 +1369,14 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
                     Context->zone_manager.zone_info[j].addr = SrcHnd->video_addr; 
                     Context->zone_manager.zone_info[j].width = SrcHnd->video_width;
                     Context->zone_manager.zone_info[j].height = SrcHnd->video_height;
-                    Context->zone_manager.zone_info[j].stride = SrcHnd->video_width; 
+                    Context->zone_manager.zone_info[j].stride = SrcHnd->video_width;
+                    if (useRgaScale) {
+                        Context->zone_manager.zone_info[j].addr = 0;
+                        Context->zone_manager.zone_info[j].layer_fd = video_fd;
+                        Context->zone_manager.zone_info[j].width = SrcHnd->width;
+                        Context->zone_manager.zone_info[j].height = SrcHnd->height;
+                        Context->zone_manager.zone_info[j].stride = SrcHnd->stride;
+                    }
                     //Context->zone_manager.zone_info[j].format = SrcHnd->format;                        
                     break;
                     
@@ -1254,14 +1472,16 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
                 default:
                     ALOGD("Unsupport transform=0x%x",layer->transform);
                     return -1;
-            }   
+            }
+
             ALOGV("layer->transform=%d",layer->transform);
-            if(layer->transform){
+            if(layer->transform || useRgaScale){
                 int lastfd = -1;
                 bool fd_update = true;
                 lastfd = Context->mRgaTBI.lastfd;
                 if(trsfrmbyrga && lastfd == SrcHnd->share_fd && 
-                    SrcHnd->format != HAL_PIXEL_FORMAT_YCrCb_NV12){
+                    (SrcHnd->format != HAL_PIXEL_FORMAT_YCrCb_NV12
+                    || SrcHnd->format != HAL_PIXEL_FORMAT_YCrCb_NV12_10)){
                     fd_update = true;
                 }
                 if(fd_update){
@@ -1296,15 +1516,80 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
                     Context->mRgaTBI.transform = layer->transform;
                     Context->mRgaTBI.trsfrmbyrga = trsfrmbyrga;
 					Context->mRgaTBI.lastfd = SrcHnd->share_fd;
+					memcpy(&Context->mRgaTBI.zone_info,&Context->zone_manager.zone_info[j],
+					                                                    sizeof(ZoneInfo));
                     Context->mRgaTBI.layer_fd = Context->zone_manager.zone_info[j].layer_fd;
+                    Context->mRgaTBI.type = useRgaScale ? 1 : 0;
                     Context->mNeedRgaTransform = true;
                 }
+            }
+            if (useRgaScale) {
+                psrc_rect->left = 0;
+                psrc_rect->top = 0;
+                switch (layer->transform) {
+                    case HWC_TRANSFORM_ROT_90:
+                    case HWC_TRANSFORM_ROT_270:
+                        psrc_rect->right = Context->zone_manager.zone_info[j].disp_rect.right -
+                                             Context->zone_manager.zone_info[j].disp_rect.left;
+                        psrc_rect->bottom = Context->zone_manager.zone_info[j].disp_rect.bottom -
+                                                Context->zone_manager.zone_info[j].disp_rect.top;
+                        Context->zone_manager.zone_info[j].stride = rkmALIGN(psrc_rect->bottom,32);
+                        Context->zone_manager.zone_info[j].width = psrc_rect->bottom - psrc_rect->bottom % 2;
+                        Context->zone_manager.zone_info[j].height = rkmALIGN(psrc_rect->right,32);
+                        break;
+                    case 0:
+                    case HWC_TRANSFORM_ROT_180:
+                        psrc_rect->bottom = Context->zone_manager.zone_info[j].disp_rect.bottom -
+                                                Context->zone_manager.zone_info[j].disp_rect.top;
+                        psrc_rect->right = Context->zone_manager.zone_info[j].disp_rect.right -
+                                             Context->zone_manager.zone_info[j].disp_rect.left;
+                        Context->zone_manager.zone_info[j].stride = rkmALIGN(psrc_rect->right,32);
+                        Context->zone_manager.zone_info[j].width = psrc_rect->right - psrc_rect->right % 2;
+                        Context->zone_manager.zone_info[j].height = psrc_rect->bottom - psrc_rect->bottom % 2;
+                        break;
+                    case 2:
+                        psrc_rect->right = Context->zone_manager.zone_info[j].disp_rect.bottom -
+                                                Context->zone_manager.zone_info[j].disp_rect.top;
+                        psrc_rect->bottom = Context->zone_manager.zone_info[j].disp_rect.right -
+                                             Context->zone_manager.zone_info[j].disp_rect.left;
+                        Context->zone_manager.zone_info[j].stride = rkmALIGN(psrc_rect->right,32);
+                        Context->zone_manager.zone_info[j].width = psrc_rect->right - psrc_rect->right % 2;
+                        Context->zone_manager.zone_info[j].height = psrc_rect->bottom - psrc_rect->bottom % 2;
+                        break;
+                    default:
+                        break;
+                }
+                Context->zone_manager.zone_info[j].format = HAL_PIXEL_FORMAT_YCrCb_NV12;
             }
 			psrc_rect->left = psrc_rect->left - psrc_rect->left%2;
 			psrc_rect->top = psrc_rect->top - psrc_rect->top%2;
 			psrc_rect->right = psrc_rect->right - psrc_rect->right%2;
 			psrc_rect->bottom = psrc_rect->bottom - psrc_rect->bottom%2;
 			Context->zone_manager.zone_info[j].pRelFenceFd = &(Context->relFenceFd[index_v]);
+			ALOGV("Zone[%d]->layer[%d],"
+                        "[%d,%d,%d,%d] =>[%d,%d,%d,%d],"
+                        "w_h_s_f[%d,%d,%d,%d],tr_rtr_bled[%d,%d,%d],acq_fence_fd=%d,"
+                        "layname=%s,fd=%d",
+                        Context->zone_manager.zone_info[j].zone_index,
+                        Context->zone_manager.zone_info[j].layer_index,
+                        Context->zone_manager.zone_info[j].src_rect.left,
+                        Context->zone_manager.zone_info[j].src_rect.top,
+                        Context->zone_manager.zone_info[j].src_rect.right,
+                        Context->zone_manager.zone_info[j].src_rect.bottom,
+                        Context->zone_manager.zone_info[j].disp_rect.left,
+                        Context->zone_manager.zone_info[j].disp_rect.top,
+                        Context->zone_manager.zone_info[j].disp_rect.right,
+                        Context->zone_manager.zone_info[j].disp_rect.bottom,
+                        Context->zone_manager.zone_info[j].width,
+                        Context->zone_manager.zone_info[j].height,
+                        Context->zone_manager.zone_info[j].stride,
+                        Context->zone_manager.zone_info[j].format,
+                        Context->zone_manager.zone_info[j].transform,
+                        Context->zone_manager.zone_info[j].realtransform,
+                        Context->zone_manager.zone_info[j].blend,
+                        Context->zone_manager.zone_info[j].acq_fence_fd,
+                        Context->zone_manager.zone_info[j].LayerName,
+                        Context->zone_manager.zone_info[j].layer_fd);
 		} else {
             Context->zone_manager.zone_info[j].src_rect.left   = hwcMAX ((SrcRect->left \
             - (int) ((DstRect->left   - dstRects[0].left)   * hfactor)),0);
@@ -4752,7 +5037,7 @@ check_layer(
             && handle->format != HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO
             &&Context->mtrsformcnt == 1)
         {
-            //Context->mTrsfrmbyrga = true;
+            Context->mTrsfrmbyrga = true;
             ALOGV("zxl:layer->transform=%d",Layer->transform);
         }
 #endif
@@ -7029,7 +7314,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         context->mGtsStatus = false;
     }
 
-    context->mTrsfrmbyrga = false;
+    //context->mTrsfrmbyrga = false;
     /* Check all layers: tag with different compositionType. */
     for (i = 0; i < (list->numHwLayers - 1); i++){
         hwc_layer_1_t * layer = &list->hwLayers[i];
@@ -7163,6 +7448,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     if(list->hwLayers[context->mRgaTBI.index].compositionType == HWC_FRAMEBUFFER) {
         context->mNeedRgaTransform = false;
     } else if(context->mNeedRgaTransform) {
+        int ret = 0;
         int w_valid = context->mRgaTBI.w_valid;
         int h_valid = context->mRgaTBI.h_valid;
         int layer_fd = context->mRgaTBI.layer_fd;
@@ -7171,7 +7457,13 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         bool trsfrmbyrga = context->mRgaTBI.trsfrmbyrga;
         struct private_handle_t* hdl = context->mRgaTBI.hdl;
         int Dstfmt = trsfrmbyrga ? hwChangeRgaFormat(hdl->format) : RK_FORMAT_YCbCr_420_SP;
-        if(rga_video_copybit(hdl,transform,w_valid,h_valid,layer_fd,Dstfmt,trsfrmbyrga,dpyID,true)) {
+        if (context->mRgaTBI.type == 1) {
+            Dstfmt = RK_FORMAT_YCbCr_420_SP;
+            ret = rgaRotateScale(context,transform,layer_fd,Dstfmt,true);
+        } else if (context->mRgaTBI.type == 0)
+            ret = rga_video_copybit(hdl,transform,w_valid,h_valid,layer_fd,Dstfmt,
+                                                            trsfrmbyrga,dpyID,true);
+        if (ret) {
             ALOGD_IF(log(HLLONE),"T:RGA copyblit fail");
             context->mRgaTBI.lastfd = 0;
             int index_v = context->mCurVideoIndex % MaxVideoBackBuffers;
@@ -8237,7 +8529,12 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
         bool trsfrmbyrga = context->mRgaTBI.trsfrmbyrga;
         struct private_handle_t* hdl = context->mRgaTBI.hdl;
         int Dstfmt = trsfrmbyrga ? hwChangeRgaFormat(hdl->format) : RK_FORMAT_YCbCr_420_SP;
-        rga_video_copybit(hdl,transform,w_valid,h_valid,layer_fd,Dstfmt,trsfrmbyrga,dpyID,false);
+        if (context->mRgaTBI.type == 1) {
+            Dstfmt = RK_FORMAT_YCbCr_420_SP;
+            rgaRotateScale(context,transform,layer_fd,Dstfmt,false);
+        } else
+            rga_video_copybit(hdl,transform,w_valid,h_valid,layer_fd,Dstfmt,
+                                                    trsfrmbyrga,dpyID,false);
 #if USE_VIDEO_BACK_BUFFERS
         context->mCurVideoIndex++;  //update video buffer index
 #else

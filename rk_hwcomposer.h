@@ -336,6 +336,7 @@ ZoneInfo;
 
 typedef struct _RgaTrfBakInfo
 {
+    int type;
     int w_valid;
     int h_valid;
     int layer_fd;
@@ -343,6 +344,7 @@ typedef struct _RgaTrfBakInfo
     int lastfd;
     uint32_t transform;
     bool trsfrmbyrga;
+    ZoneInfo zone_info;
     struct private_handle_t* hdl;
 }
 RgaTBI;

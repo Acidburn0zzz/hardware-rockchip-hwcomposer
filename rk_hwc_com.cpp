@@ -98,7 +98,11 @@ int hwChangeRgaFormat(IN int fmt )
     case HAL_PIXEL_FORMAT_YCrCb_NV12:
         return RK_FORMAT_YCbCr_420_SP;
 	case HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO:
-	   return RK_FORMAT_YCbCr_420_SP;
+	    return RK_FORMAT_YCbCr_420_SP;
+	case HAL_PIXEL_FORMAT_YCrCb_NV12_10:
+	    /*I do not know why some platform not has the right branch*/
+	    //return RK_FORMAT_YCbCr_420_SP_10B;
+	    return 0x20;
     default:
         return hwcSTATUS_INVALID_ARGUMENT;
     }
