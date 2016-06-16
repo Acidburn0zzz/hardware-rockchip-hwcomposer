@@ -1023,6 +1023,35 @@ bool is_gpu_or_nodraw(hwc_display_contents_1_t *list,int dpyID)
     return false;
 }
 
+static int initPlatform(hwcContext* ctx)
+{
+    if (!ctx)
+        return -EINVAL;
+
+    ctx->isRk3288 = false;
+    ctx->isRk3368 = false;
+    ctx->isRk3366 = false;
+    ctx->isRk3399 = false;
+
+#ifdef TARGET_BOARD_PLATFORM_RK3288
+    ctx->isRk3288 = true;
+#elif TARGET_BOARD_PLATFORM_RK3368
+    ctx->isRk3368 = true;
+#elif TARGET_BOARD_PLATFORM_RK3366
+    ctx->isRk3366 = true;
+#elif TARGET_BOARD_PLATFORM_RK3399
+    ctx->isRk3399 = true;
+#else
+    ALOGE("Who is this platform?");
+#endif
+
+    ALOGI("rk3288:%s;  rk3368:%s;  rk3366:%s;  rk3399:%s;",
+           ctx->isRk3288 ? "Yes" : "No",ctx->isRk3368 ? "Yes" : "No",
+           ctx->isRk3366 ? "Yes" : "No",ctx->isRk3399 ? "Yes" : "No");
+
+    return 0;
+}
+
 static int ZoneDispatchedCheck(hwcContext* ctx,ZoneManager* pzone_mag,int flag)
 {
     int ret = 0;
@@ -1322,7 +1351,12 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         Context->zone_manager.zone_info[j].acq_fence_fd = layer->acquireFenceFd;
         Context->zone_manager.zone_info[j].pRelFenceFd = &(layer->releaseFenceFd);
 #endif
-        if (SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_10) {
+
+        bool supportPlatform = false;
+        supportPlatform = supportPlatform || Context->isRk3366;
+        supportPlatform = supportPlatform || Context->isRk3399;
+
+        if (SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_10 && supportPlatform) {
             if (vfactor < 4 && vfactor > 2 && hfactor < 4 && hfactor > 2)
                 useRgaScale = true;
             else if (layer->transform)
@@ -9734,6 +9768,9 @@ hwc_device_open(
     context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
 #endif
     context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_vh;
+
+    initPlatform(context);
+
     _contextAnchor = context;
 #if VIRTUAL_RGA_BLIT
     _contextAnchor2 = (hwcContext *) malloc(sizeof (hwcContext));
@@ -10336,6 +10373,8 @@ int hotplug_get_config(int flag){
     context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_mix_up;
     context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_vh;
 #endif
+
+    initPlatform(context);
     _contextAnchor1 = context;
 #if !(defined(GPU_G6110) || defined(RK3399_BOX))
 #ifdef RK3288_BOX

@@ -120,8 +120,8 @@
 #define HWCE                            1           //HWC_DISPLAY_EXTERNAL
 #define HWCV                            2           //HWC_DISPLAY_VIRTUAL
 
-#define GHWC_VERSION                    "2.078"
-#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.078"
+#define GHWC_VERSION                    "2.079"
+#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.079"
 
 #ifdef GPU_G6110
 #if G6110_SUPPORT_FBDC
@@ -681,6 +681,10 @@ typedef struct _hwcContext
 #endif
     int                            g_hdmi_mode;
     void*                          vopctx;
+    bool                           isRk3288;
+    bool                           isRk3368;
+    bool                           isRk3366;
+    bool                           isRk3399;
 }
 hwcContext;
 #define rkmALIGN(n, align) \
