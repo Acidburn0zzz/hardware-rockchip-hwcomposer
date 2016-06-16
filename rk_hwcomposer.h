@@ -49,7 +49,7 @@
 #define MOST_WIN_ZONES                  4
 #define ENBALE_WIN_ANY_ZONES            0
 #define ENABLE_TRANSFORM_BY_RGA         1           //1: It will need reserve a phyical memory for transform.
-#define OPTIMIZATION_FOR_TRANSFORM_UI   1
+#define OPTIMIZATION_FOR_TRANSFORM_UI   0
 #define OPTIMIZATION_FOR_DIMLAYER       1           //1: optimise for dim layer
 #define HWC_EXTERNAL                    1           //1:hwc control two lcdc for display
 #define USE_QUEUE_DDRFREQ               1
@@ -120,8 +120,8 @@
 #define HWCE                            1           //HWC_DISPLAY_EXTERNAL
 #define HWCV                            2           //HWC_DISPLAY_VIRTUAL
 
-#define GHWC_VERSION                    "2.077"
-#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.077"
+#define GHWC_VERSION                    "2.078"
+#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.078"
 
 #ifdef GPU_G6110
 #if G6110_SUPPORT_FBDC
