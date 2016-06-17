@@ -4978,7 +4978,7 @@ check_layer(
 
 
 #if OPTIMIZATION_FOR_DIMLAYER
-    if(!strcmp(Layer->LayerName,"DimLayer"))
+    if(!strcmp(Layer->LayerName,"DimLayer") && !Layer->transform)
     {
         Layer->handle= Context->mDimHandle;
         handle = (struct private_handle_t*) Layer->handle;
