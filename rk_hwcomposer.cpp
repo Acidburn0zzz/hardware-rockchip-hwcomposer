@@ -3095,6 +3095,13 @@ int try_wins_dispatch_mix_down(void * ctx,hwc_display_contents_1_t * list)
         return -1;
     }
 
+#ifdef RK3288_BOX
+    if(Context==_contextAnchor && Context->mResolutionChanged && Context->mLcdcNum==2){
+        ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
+        return -1;
+    }
+#endif
+
     if(contextAh->mHdmiSI.NeedReDst){
         ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
         return -1;
