@@ -1805,10 +1805,17 @@ int try_wins_dispatch_hor(void * ctx,hwc_display_contents_1_t * list)
         }
     }
 #endif
-    if(Context->Is3D){
-        ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
-        return -1;
+#ifdef SUPPORT_STEREO
+    for(int k=0;k<pzone_mag->zone_cnt;k++)
+    {
+        if(Context->Is3D && (!pzone_mag->zone_info[k].alreadyStereo
+                                && pzone_mag->zone_info[k].displayStereo))
+	{
+            ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
+            return -1;
+        }
     }
+#endif
 
     if(Context->mAlphaError){
         ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
@@ -3010,6 +3017,7 @@ int try_wins_dispatch_mix_up(void * ctx,hwc_display_contents_1_t * list)
 
 int try_wins_dispatch_mix_down(void * ctx,hwc_display_contents_1_t * list)
 {
+    ALOGD_IF(log(HLLONE),"Enter %s",__func__);
     int win_disphed_flag[3] = {0,}; // win0, win1, win2, win3 flag which is dispatched
     int win_disphed[3] = {win0,win1,win2_0};
     int i,j;
@@ -3463,6 +3471,7 @@ TryAgain:
 int try_wins_dispatch_mix_v2 (void * ctx,hwc_display_contents_1_t * list)
 {
 #if OPTIMIZATION_FOR_TRANSFORM_UI
+    ALOGD_IF(log(HLLONE),"Enter %s",__func__);
     int win_disphed_flag[3] = {0,}; // win0, win1, win2, win3 flag which is dispatched
     int win_disphed[3] = {win0,win1,win2_0};
     int i,j;
@@ -3921,6 +3930,7 @@ int try_wins_dispatch_mix_v2 (void * ctx,hwc_display_contents_1_t * list)
 
 int try_wins_mix_fp_stereo (void * ctx,hwc_display_contents_1_t * list)
 {
+    ALOGD_IF(log(HLLONE),"Enter %s",__func__);
     int win_disphed_flag[3] = {0,}; // win0, win1, win2, win3 flag which is dispatched
     int win_disphed[3] = {win0,win1,win2_0};
     int i,j;
@@ -3948,6 +3958,7 @@ int try_wins_mix_fp_stereo (void * ctx,hwc_display_contents_1_t * list)
     int iFirstTransformLayer=-1;
     bool bTransform=false;
     bool isNotSupportOverlay = true;
+    bool hasFpsLyaer = false;
 
     memset(&bpvinfo,0,sizeof(BpVopInfo));
     char const* compositionTypeName[] = {
@@ -3977,6 +3988,17 @@ int try_wins_mix_fp_stereo (void * ctx,hwc_display_contents_1_t * list)
 #endif
     if(pzone_mag->zone_info[0].scale_err || pzone_mag->zone_info[0].toosmall
         || pzone_mag->zone_info[0].zone_err || pzone_mag->zone_info[0].transform) {
+        return -1;
+    }
+
+    for(i = 0; i < pzone_mag->zone_cnt; i++) {
+        if(pzone_mag->zone_info[i].alreadyStereo == 8) {
+            hasFpsLyaer = true;
+        }
+    }
+
+    if(!hasFpsLyaer) {
+        ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
         return -1;
     }
 
@@ -4315,6 +4337,7 @@ int try_wins_mix_fp_stereo (void * ctx,hwc_display_contents_1_t * list)
 
 int try_wins_dispatch_mix_vh (void * ctx,hwc_display_contents_1_t * list)
 {
+    ALOGD_IF(log(HLLONE),"Enter %s",__func__);
     int win_disphed_flag[3] = {0,}; // win0, win1, win2, win3 flag which is dispatched
     int win_disphed[3] = {win0,win1,win2_0};
     int i,j;
@@ -4362,24 +4385,30 @@ int try_wins_dispatch_mix_vh (void * ctx,hwc_display_contents_1_t * list)
     }else if(Context == _contextAnchor){
         mix_index = 0;
     }
+
     if(list->numHwLayers - 1 < 2)
     {
+        ALOGD_IF(log(HLLFOU),"Policy out %s,%d",__func__,__LINE__);
     	return -1;
     }
 
     if(Context->mAlphaError){
+        ALOGD_IF(log(HLLFOU),"Policy out %s,%d",__func__,__LINE__);
         return -1;
     }
 
     for(int k=0;k<1;k++)
     {
         if(pzone_mag->zone_info[k].scale_err || pzone_mag->zone_info[k].toosmall
-            || pzone_mag->zone_info[k].zone_err || (pzone_mag->zone_info[k].transform
-                && (pzone_mag->zone_info[k].format != HAL_PIXEL_FORMAT_YCrCb_NV12)))
+            || pzone_mag->zone_info[k].zone_err || pzone_mag->zone_info[k].transform) {
+            ALOGD_IF(log(HLLFOU),"%s,%d",__func__,__LINE__);
             return -1;
+        }
     }
 
-    if(Context->Is3D && (!pzone_mag->zone_info[0].alreadyStereo && pzone_mag->zone_info[0].displayStereo)){
+    if(Context->Is3D && (!pzone_mag->zone_info[0].alreadyStereo 
+                                        && pzone_mag->zone_info[0].displayStereo)) {
+        ALOGD_IF(log(HLLFOU),"Policy out %s,%d",__func__,__LINE__);
         return -1;
     }
 
@@ -4625,8 +4654,10 @@ int try_wins_dispatch_mix_vh (void * ctx,hwc_display_contents_1_t * list)
         int sct_height = pzone_mag->zone_info[i].height;
         /*scal not support whoes source bigger than 2560 to dst 4k*/
         if(disptched <= win1 &&(sct_width > 2160 || sct_height > 2160) &&
-            !is_yuv(pzone_mag->zone_info[i].format) && contextAh->mHdmiSI.NeedReDst)
+            !is_yuv(pzone_mag->zone_info[i].format) && contextAh->mHdmiSI.NeedReDst) {
+            ALOGD_IF(log(HLLFOU),"%s,%d",__func__,__LINE__);
             return -1;
+        }
     }
 
 #if USE_QUEUE_DDRFREQ
@@ -4708,8 +4739,9 @@ int try_wins_dispatch_mix_vh (void * ctx,hwc_display_contents_1_t * list)
             {
                 for(i= 0;i<4;i++)
                 {
-                    ALOGD("RK_QUEDDR_FREQ mixinfo win[%d] bo_size=%dMB,bp_vop_size=%dMB,state=%d,num=%d",
-                        i,bpvinfo.bp_size,bpvinfo.bp_vop_size,bpvinfo.vopinfo[i].state,bpvinfo.vopinfo[i].zone_num);
+                    ALOGD("%s,%d:RK_QUEDDR_FREQ mixinfo win[%d] bo_size=%dMB,bp_vop_size=%dMB,state=%d,num=%d",
+                        __func__,__LINE__,i,bpvinfo.bp_size,bpvinfo.bp_vop_size,
+                            bpvinfo.vopinfo[i].state,bpvinfo.vopinfo[i].zone_num);
                 }    
             }    
             return -1;    
@@ -6228,6 +6260,7 @@ int dump_prepare_info(hwc_display_contents_1_t** displays, int flag)
 
 int dump_config_info(struct rk_fb_win_cfg_data fb_info ,hwcContext * context, int flag)
 {
+    bool listIsNull = true;
     char poutbuf[20];
     char eoutbuf[20];
     bool isLogOut = flag == 3;
@@ -6273,6 +6306,8 @@ int dump_config_info(struct rk_fb_win_cfg_data fb_info ,hwcContext * context, in
         for(int j=0;j<4;j++)
         {
             if(fb_info.win_par[i].area_par[j].ion_fd || fb_info.win_par[i].area_par[j].phy_addr)
+            {
+                listIsNull = false;
                 ALOGD("%s win[%d],area[%d],z_win[%d,%d],[%d,%d,%d,%d]=>[%d,%d,%d,%d],w_h_f[%d,%d,%d],fd=%d,addr=%x,fbFd=%d",
                     context==_contextAnchor ? poutbuf : eoutbuf,
                     i,j,
@@ -6292,8 +6327,11 @@ int dump_config_info(struct rk_fb_win_cfg_data fb_info ,hwcContext * context, in
                     fb_info.win_par[i].area_par[j].ion_fd,
                     fb_info.win_par[i].area_par[j].phy_addr,
                     context->fbFd);
+            }
         }
     }
+    ALOGD_IF(listIsNull,"fbinfo is null when collect config");
+
     return 0;
 }
 
@@ -6523,7 +6561,7 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
         int area_no = 0;
         int win_id = 0;
         int raw_format=hwChangeFormatandroidL(pzone_mag->zone_info[i].format);
-        ALOGV("hwc_set_lcdc Zone[%d]->layer[%d],dispatched=%d,"
+        ALOGD_IF(log(HLLONE),"hwc_set_lcdc Zone[%d]->layer[%d],dispatched=%d,"
         "[%d,%d,%d,%d] =>[%d,%d,%d,%d],"
         "w_h_s_f[%d,%d,%d,0x%x],tr_rtr_bled[%d,%d,%d],"
         "layer_fd[%d],addr=%x,acq_fence_fd=%d"
