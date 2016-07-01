@@ -6951,13 +6951,14 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
         }else{
             fb_info.win_par[win_no-1].win_id = 3;
         }
-
-        if (context->isMid && context->mHdmiSI.mix_vh && dpyID && context->isRk3399)
-            fb_info.win_par[win_no-1].win_id = 2;
         fb_info.win_par[win_no-1].z_order = z_order-1;
-        if(pzone_mag->mCmpType == HWC_MIX_CROSS){
+        if (pzone_mag->mCmpType == HWC_MIX_CROSS) {
             fb_info.win_par[win_no-1].z_order = z_order-2;
             fb_info.win_par[win_no-2].z_order = z_order-1;
+        }
+        if (context->isMid && context->mHdmiSI.mix_vh && dpyID && context->isRk3399) {
+            fb_info.win_par[win_no-1].win_id = 2;
+            fb_info.win_par[win_no-1].z_order = 2;
         }
         fb_info.win_par[win_no-1].area_par[0].ion_fd = handle->share_fd;
 #if USE_HWC_FENCE
