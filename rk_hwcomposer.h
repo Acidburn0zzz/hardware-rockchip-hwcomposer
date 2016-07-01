@@ -120,8 +120,8 @@
 #define HWCE                            1           //HWC_DISPLAY_EXTERNAL
 #define HWCV                            2           //HWC_DISPLAY_VIRTUAL
 
-#define GHWC_VERSION                    "2.084"
-#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.084"
+#define GHWC_VERSION                    "2.085"
+#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.085"
 
 #ifdef GPU_G6110
 #if G6110_SUPPORT_FBDC
@@ -698,6 +698,9 @@ typedef struct _hwcContext
     unsigned int                   vopType;
 
     /************platform info***********************/
+    bool                           isBox;
+    bool                           isMid;
+    bool                           isPhone;
     bool                           isRk3288;
     bool                           isRk3368;
     bool                           isRk3366;

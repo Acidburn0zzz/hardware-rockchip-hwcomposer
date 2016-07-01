@@ -1046,9 +1046,26 @@ static int initPlatform(hwcContext* ctx)
 #endif
 
     ALOGI("rk3288:%s;  rk3368:%s;  rk3366:%s;  rk3399:%s;",
-           ctx->isRk3288 ? "Yes" : "No",ctx->isRk3368 ? "Yes" : "No",
-           ctx->isRk3366 ? "Yes" : "No",ctx->isRk3399 ? "Yes" : "No");
+       ctx->isRk3288 ? "Yes" : "No",ctx->isRk3368 ? "Yes" : "No",
+       ctx->isRk3366 ? "Yes" : "No",ctx->isRk3399 ? "Yes" : "No");
 
+    ctx->isBox = false;
+    ctx->isMid = false;
+    ctx->isPhone = false;
+
+#ifdef RK_MID
+    ctx->isMid = true;
+#elif RK_BOX
+    ctx->isBox = true;
+#elif RK_PHONE
+    ctx->isPhone = true;
+#else
+    ALOGE("Who is the platform?NOT these:box,mid,phone?");
+#endif
+
+    ALOGI("isBox:%s;  isMid:%s;  isPhone:%s;",
+           ctx->isBox ? "Yes" : "No",ctx->isMid ? "Yes" : "No",
+           ctx->isPhone? "Yes" : "No");
     return 0;
 }
 
@@ -7842,30 +7859,33 @@ static int hwc_fbPost(hwc_composer_device_1_t * dev, size_t numDisplays, hwc_dis
 static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
 {
     ATRACE_CALL();
-    if (list == NULL){
-        return -1;
-    }
-
     int dpyID = 0;
-    if(context!=_contextAnchor){
-        dpyID = 1;
-    }
+    int winID = 2;
 
-    if(!is_need_post(list,dpyID,1)){
+    if (list == NULL)
         return -1;
-    }
+
+    if (context!=_contextAnchor)
+        dpyID = 1;
+
+    if(!is_need_post(list,dpyID,1))
+        return -1;
+
+    if (context->isBox && !dpyID)
+        winID = 0;
     //if (context->fbFd>0 && !context->fb_blanked)
 #if defined(RK3288_MID)
-    if(dpyID == 0 || (dpyID == 1 && !context->fb_blanked)) {
+    if(dpyID == 0 || (dpyID == 1 && !context->fb_blanked))
 #else
-#ifdef RK3288_BOX
+    #ifdef RK3288_BOX
     int lcdcNum = _contextAnchor->mLcdcNum;
     bool isPost = dpyID == 0 || (dpyID == 1 && !context->fb_blanked);
-    if(lcdcNum==1 || (lcdcNum==2 && isPost)) {
-#else
-    if(true) {
+    if(lcdcNum==1 || (lcdcNum==2 && isPost))
+    #else
+    if(true)
+    #endif
 #endif
-#endif
+    {
         struct fb_var_screeninfo info;
         struct rk_fb_win_cfg_data fb_info;
         memset(&fb_info,0,sizeof(fb_info));
@@ -7898,7 +7918,7 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
         else
 #endif
             fb_info.win_par[0].area_par[0].data_format = context->fbhandle.format;
-        fb_info.win_par[0].win_id = 2;
+        fb_info.win_par[0].win_id = winID;
         fb_info.win_par[0].z_order = 0;
         fb_info.win_par[0].area_par[0].ion_fd = handle->share_fd;
 #if USE_HWC_FENCE
@@ -7917,11 +7937,11 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
         fb_info.win_par[0].area_par[0].xvir = handle->stride;
         fb_info.win_par[0].area_par[0].yvir = handle->height;
 #if USE_HWC_FENCE
-#if SYNC_IN_VIDEO
+    #if SYNC_IN_VIDEO
     if(context->mVideoMode && !context->mIsMediaView && !g_hdmi_mode)
         fb_info.wait_fs=1;
     else
-#endif
+    #endif
 	    fb_info.wait_fs=0;
 #endif
         if(context == _contextAnchor1){
@@ -7932,12 +7952,12 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
             }
          }else{
 #if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
-#ifdef RK3288_BOX
+            #ifdef RK3288_BOX
             if(_contextAnchor->mLcdcNum==1)
-#endif
-#ifdef RK3368_MID
+            #endif
+            #ifdef RK3368_MID
             if(context->mHdmiSI.CvbsOn || context->mHdmiSI.HdmiOn)
-#endif
+            #endif
             {
                 if(hotplug_reset_dstposition(&fb_info,1)){
                     ALOGW("reset_dst fail [%d]",__LINE__);
@@ -7961,9 +7981,9 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
             dump_config_info(fb_info,context,3);
         }else{
 #if ONLY_USE_ONE_VOP
-#ifdef RK3288_BOX
+            #ifdef RK3288_BOX
             if(_contextAnchor->mLcdcNum == 1)
-#endif
+            #endif
             {
                 memcpy(&_contextAnchor->fb_info,&fb_info,sizeof(rk_fb_win_cfg_data));
             }

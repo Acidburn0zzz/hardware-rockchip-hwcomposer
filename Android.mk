@@ -136,6 +136,19 @@ LOCAL_CFLAGS += -DRK3288_PHONE
 endif
 endif
 
+ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),tablet)
+LOCAL_CFLAGS += -DRK_MID
+else
+ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),box)
+LOCAL_CFLAGS += -DRK_BOX
+else
+ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),phone)
+LOCAL_CFLAGS += -DRK_PHONE
+endif #phone
+endif #box
+endif #tablet
+
+
 ifeq ($(strip $(TARGET_BOARD_PLATFORM_GPU)),G6110)
         LOCAL_CFLAGS += -DGPU_G6110
 endif
