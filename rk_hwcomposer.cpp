@@ -8457,14 +8457,16 @@ OnError:
 static void hwc_static_screen_opt_handler(int sig)
 {
 #if HTGFORCEREFRESH
-    hwcContext * context = _contextAnchor;
+    hwcContext * ctxp = _contextAnchor;
+    hwcContext * ctxe = _contextAnchor1;
     if (sig == SIGALRM) {
-        context->mOneWinOpt = true;
-        pthread_mutex_lock(&context->mRefresh.mlk);
-        context->mRefresh.count = 100;
-        ALOGD_IF(log(HLLTWO),"Htg:mRefresh.count=%d",context->mRefresh.count);
-        pthread_mutex_unlock(&context->mRefresh.mlk);
-        pthread_cond_signal(&context->mRefresh.cond);
+        ctxp->mOneWinOpt = true;
+        if (ctxe) ctxe->mOneWinOpt = true;
+        pthread_mutex_lock(&ctxp->mRefresh.mlk);
+        ctxp->mRefresh.count = 100;
+        ALOGD_IF(log(HLLTWO),"Htg:mRefresh.count=%d",ctxp->mRefresh.count);
+        pthread_mutex_unlock(&ctxp->mRefresh.mlk);
+        pthread_cond_signal(&ctxp->mRefresh.cond);
     }
 #endif
 
