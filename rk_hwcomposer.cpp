@@ -4382,6 +4382,8 @@ int try_wins_dispatch_mix_vh (void * ctx,hwc_display_contents_1_t * list)
     int i,j;
     int cntfb = 0;
     hwcContext * Context = (hwcContext *)ctx;
+    hwcContext * ctxp = _contextAnchor;
+    hwcContext * ctxe = _contextAnchor1;
     ZoneManager zone_m;
     initLayerCompositionType(Context,list);
     memcpy(&zone_m,&Context->zone_manager,sizeof(ZoneManager));
@@ -4419,25 +4421,26 @@ int try_wins_dispatch_mix_vh (void * ctx,hwc_display_contents_1_t * list)
             };
     hwcContext * contextAh = _contextAnchor;
     memset(&zone_info_ty,0,sizeof(zone_info_ty));
-    if(Context == _contextAnchor1){
-        mix_index = 1;
-    }else if(Context == _contextAnchor){
-        mix_index = 0;
-    }
 
-    if(list->numHwLayers - 1 < 2)
-    {
-        ALOGD_IF(log(HLLFOU),"Policy out %s,%d",__func__,__LINE__);
-    	return -1;
-    }
+    if (Context == ctxe)        mix_index = 1;
+    else if (Context == ctxp)   mix_index = 0;
 
-    if(Context->mAlphaError){
+    if (Context == ctxe && ctxp->isRk3399 && ctxp->mHdmiSI.NeedReDst) {
         ALOGD_IF(log(HLLFOU),"Policy out %s,%d",__func__,__LINE__);
         return -1;
     }
 
-    for(int k=0;k<1;k++)
-    {
+    if (list->numHwLayers - 1 < 2) {
+        ALOGD_IF(log(HLLFOU),"Policy out %s,%d",__func__,__LINE__);
+    	return -1;
+    }
+
+    if (Context->mAlphaError) {
+        ALOGD_IF(log(HLLFOU),"Policy out %s,%d",__func__,__LINE__);
+        return -1;
+    }
+
+    for(int k = 0; k < 1; k++) {
         if(pzone_mag->zone_info[k].scale_err || pzone_mag->zone_info[k].toosmall
             || pzone_mag->zone_info[k].zone_err || pzone_mag->zone_info[k].transform) {
             ALOGD_IF(log(HLLFOU),"%s,%d",__func__,__LINE__);
@@ -4445,16 +4448,17 @@ int try_wins_dispatch_mix_vh (void * ctx,hwc_display_contents_1_t * list)
         }
     }
 
-    if(Context->Is3D && (!pzone_mag->zone_info[0].alreadyStereo 
-                                        && pzone_mag->zone_info[0].displayStereo)) {
+    if (Context->Is3D && (!pzone_mag->zone_info[0].alreadyStereo
+                          && pzone_mag->zone_info[0].displayStereo)) {
         ALOGD_IF(log(HLLFOU),"Policy out %s,%d",__func__,__LINE__);
         return -1;
     }
 
     memcpy((void*)&gMixInfo,(void*)&gmixinfo[mix_index],sizeof(gMixInfo));
-    for(i=0,j=0;i<pzone_mag->zone_cnt;i++)
+    for(i = 0,j = 0; i < pzone_mag->zone_cnt; i++)
     {
-        //Set the layer which it's layer_index bigger than the first transform layer index to HWC_FRAMEBUFFER or HWC_NODRAW
+        //Set the layer which it's layer_index bigger than the first transform layer
+        //index to HWC_FRAMEBUFFER or HWC_NODRAW
         if(pzone_mag->zone_info[i].layer_index > 0)
         {
             hwc_layer_1_t * layer = &list->hwLayers[pzone_mag->zone_info[i].layer_index];
@@ -6577,6 +6581,8 @@ bool hwc_check_cfg(hwcContext * ctx,struct rk_fb_win_cfg_data fb_info)
 int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct hwc_fb_info *hfi,int mix_flag,bool mix_prepare)
 {
     ZoneManager* pzone_mag = &(context->zone_manager);
+    hwcContext * ctxp = _contextAnchor;
+    int dpyID = 0;
     int i,j;
     int z_order = 0;
     int win_no = 0;
@@ -6584,6 +6590,8 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
     int is_spewin = is_special_wins(context);
     struct rk_fb_win_cfg_data fb_info;
     int comType = pzone_mag->mCmpType;
+
+    dpyID = (ctxp == context) ? 0 : 1;
     memset((void*)&fb_info,0,sizeof(fb_info));
     fb_info.ret_fence_fd = -1;
     for(i=0;i<RK_MAX_BUF_NUM;i++) {
@@ -6943,6 +6951,9 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
         }else{
             fb_info.win_par[win_no-1].win_id = 3;
         }
+
+        if (context->isMid && context->mHdmiSI.mix_vh && dpyID && context->isRk3399)
+            fb_info.win_par[win_no-1].win_id = 2;
         fb_info.win_par[win_no-1].z_order = z_order-1;
         if(pzone_mag->mCmpType == HWC_MIX_CROSS){
             fb_info.win_par[win_no-1].z_order = z_order-2;
@@ -9469,7 +9480,7 @@ hwc_device_open(
 
     /* Allocate memory. */
     context = (hwcContext *) malloc(sizeof (hwcContext));
-    
+
     if(context == NULL)
     {
         LOGE("%s(%d):malloc Failed!", __FUNCTION__, __LINE__);
