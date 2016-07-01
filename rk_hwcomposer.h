@@ -120,8 +120,8 @@
 #define HWCE                            1           //HWC_DISPLAY_EXTERNAL
 #define HWCV                            2           //HWC_DISPLAY_VIRTUAL
 
-#define GHWC_VERSION                    "2.082"
-#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.082"
+#define GHWC_VERSION                    "2.083"
+#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.083"
 
 #ifdef GPU_G6110
 #if G6110_SUPPORT_FBDC
@@ -224,6 +224,16 @@ enum
 
 enum
 {
+    //F:full win,L:litel win,N: no win,H:hwc win
+    VOPFFLLH = 1 << 0,     //3288 two vop,3368 one vop are all like this
+    VOPFLHNN = 1 << 1,     //sofia 312x 3188 are all like this
+    VOPFFNNH = 1 << 2,     //
+    VOPFFHNN = 1 << 3,     //322x is that
+    VOPFLNNH = 1 << 4,     //
+};
+
+enum
+{
     //Log level flag
     HLLONE = 1 << 0,     //HWC_LOG_LEVEL_ONE
     HLLTWO = 1 << 1,     //HWC_LOG_LEVEL_TWO
@@ -306,6 +316,7 @@ typedef struct _ZoneInfo
 	int         zone_alpha;
 	int         blend;
 	bool        is_stretch;
+	bool        is_yuv;
 	int         is_large;
 	int         size;
 	bool        scale_err;
@@ -592,6 +603,7 @@ typedef struct _hwcContext
     unsigned int                    fbStride;
     int                             wfdOptimize;
     bool                            wfdRgaBlit;
+
     /***************** PMEM stuff. *************************/
     unsigned int                    pmemPhysical;
     unsigned int                    pmemLength;
@@ -648,6 +660,7 @@ typedef struct _hwcContext
     bufferInfo                     mSrBI;
 #endif
 
+    /*****************force refresh**********************/
 #if HTGFORCEREFRESH
     threadPamaters                 mRefresh;
 #endif
@@ -680,7 +693,11 @@ typedef struct _hwcContext
     buffer_handle_t                mDimHandle;
 #endif
     int                            g_hdmi_mode;
+    /************vop info****************************/
     void*                          vopctx;
+    unsigned int                   vopType;
+
+    /************platform info***********************/
     bool                           isRk3288;
     bool                           isRk3368;
     bool                           isRk3366;

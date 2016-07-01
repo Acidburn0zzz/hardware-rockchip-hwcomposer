@@ -1687,6 +1687,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         else
             bpp = 4;
 
+        Context->zone_manager.zone_info[j].is_yuv = is_yuv(Context->zone_manager.zone_info[j].format);
         // ALOGD("haveStartwin=%d,bpp=%d",haveStartwin,bpp);
         Context->zone_manager.zone_info[j].size = srcw*srch*bpp;
         if(Context->zone_manager.zone_info[j].hfactor > 1.0 || Context->mIsMediaView)
@@ -1906,24 +1907,23 @@ int try_wins_dispatch_hor(void * ctx,hwc_display_contents_1_t * list)
         ALOGV("sort[%d].type=%d",i,pzone_mag->zone_info[i].sort);
         if( pzone_mag->zone_info[i].sort == 1){
             srot_tal[0][0]++;
-            if(pzone_mag->zone_info[i].is_stretch)
+            if(pzone_mag->zone_info[i].is_stretch || pzone_mag->zone_info[i].is_yuv)
                 sort_stretch[0] = 1;
         }    
         else if(pzone_mag->zone_info[i].sort == 2){
             srot_tal[1][0]++;
-            if(pzone_mag->zone_info[i].is_stretch)
+            if(pzone_mag->zone_info[i].is_stretch || pzone_mag->zone_info[i].is_yuv)
                 sort_stretch[1] = 1;
         }    
         else if(pzone_mag->zone_info[i].sort == 3){
             srot_tal[2][0]++;
-            if(pzone_mag->zone_info[i].is_stretch)
+            if(pzone_mag->zone_info[i].is_stretch || pzone_mag->zone_info[i].is_yuv)
                 sort_stretch[2] = 1;
-            
         }    
         else if(pzone_mag->zone_info[i].sort == 4){
             srot_tal[3][0]++;   
-            if(pzone_mag->zone_info[i].is_stretch)
-                sort_stretch[3] = 1;            
+            if(pzone_mag->zone_info[i].is_stretch || pzone_mag->zone_info[i].is_yuv)
+                sort_stretch[3] = 1;
         }    
         if(pzone_mag->zone_info[i].hfactor > hfactor_max)
         {
@@ -1965,10 +1965,11 @@ int try_wins_dispatch_hor(void * ctx,hwc_display_contents_1_t * list)
             }
         }
     }
-    // second dispatch stretch win
+
+    //second dispatch stretch win
     j = 0;
-    for(i=0;i<4;i++)    
-    {        
+    for(i=0;i<4;i++)
+    {
         if( sort_stretch[i] == 1)  // strech
         {
             srot_tal[i][1] = win_disphed[j];  // win 0 and win 1 suporot stretch
@@ -1982,17 +1983,38 @@ int try_wins_dispatch_hor(void * ctx,hwc_display_contents_1_t * list)
             }
         }
     }  
-    // third dispatch common zones win
-    for(i=0;i<4;i++)    
-    {        
-        if( srot_tal[i][1] == 0)  // had not dispatched
+
+    //third dispatch common zones win
+    for (i = 0; i < 4; i++)
+    {
+        /*had not dispatched and not need scale*/
+        if (srot_tal[i][1] == 0 && sort_stretch[i] == 0)
         {
-            for(j=0;j<4;j++)
+            for(j = 2; j < 4; j++)
+            {
+                if (win_disphed_flag[j] == 0) // find the win had not dispatched
+                    break;
+            }
+            if (j >= 4)
+                break;
+
+            srot_tal[i][1] = win_disphed[j];
+            win_disphed_flag[j] = 1;
+            ALOGV("srot_tal[%d][1].dispatched=%d",i,srot_tal[i][1]);
+        }
+    }
+
+    //four dispatch scale zones win but not need scale
+    for (i = 0; i < 4; i++)
+    {
+        if (srot_tal[i][1] == 0)  // had not dispatched
+        {
+            for (j = 0; j < 2; j++)
             {
                 if(win_disphed_flag[j] == 0) // find the win had not dispatched
                     break;
             }  
-            if(j>=4)
+            if (j >= 2)
             {
                 ALOGE("4 wins had beed dispatched ");
                 return -1;
