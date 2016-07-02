@@ -95,6 +95,9 @@ endif
 ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),phone)
 LOCAL_CFLAGS += -DRK3399_PHONE
 endif
+ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),vr)
+LOCAL_CFLAGS += -DRK3399_VR
+endif
 endif
 
 ifeq ($(strip $(TARGET_BOARD_PLATFORM)),rk3366)
@@ -107,6 +110,9 @@ LOCAL_CFLAGS += -DRK3366_BOX
 endif
 ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),phone)
 LOCAL_CFLAGS += -DRK3366_PHONE
+endif
+ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),vr)
+LOCAL_CFLAGS += -DRK3366_VR
 endif
 endif
 
@@ -121,6 +127,9 @@ endif
 ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),phone)
 LOCAL_CFLAGS += -DRK3368_PHONE
 endif
+ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),vr)
+LOCAL_CFLAGS += -DRK3368_VR
+endif
 endif
 
 ifeq ($(strip $(TARGET_BOARD_PLATFORM)),rk3288)
@@ -134,6 +143,9 @@ endif
 ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),phone)
 LOCAL_CFLAGS += -DRK3288_PHONE
 endif
+ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),vr)
+LOCAL_CFLAGS += -DRK3288_VR
+endif
 endif
 
 ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),tablet)
@@ -144,6 +156,10 @@ LOCAL_CFLAGS += -DRK_BOX
 else
 ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),phone)
 LOCAL_CFLAGS += -DRK_PHONE
+else
+ifeq ($(strip $(TARGET_BOARD_PLATFORM_PRODUCT)),vr)
+LOCAL_CFLAGS += -DRK_VR
+endif #vr
 endif #phone
 endif #box
 endif #tablet

@@ -243,34 +243,35 @@ int hwc_init_version()
 {
     char acVersion[50];
     memset(acVersion,0,sizeof(acVersion));
-    if(sizeof(GHWC_VERSION) > 12) {
+    if (sizeof(GHWC_VERSION) > 12) {
         strncpy(acVersion,GHWC_VERSION,12);
     } else {
         strcpy(acVersion,GHWC_VERSION);
     }
-#ifdef RK3288_BOX
-    strcat(acVersion,"-3288BOX");
+#ifdef DTARGET_BOARD_PLATFORM_RK3288
+    strcat(acVersion,"-3288");
 #endif
-#ifdef RK3288_MID
-    strcat(acVersion,"-3288MID");
+#ifdef DTARGET_BOARD_PLATFORM_RK3368
+    strcat(acVersion,"-3368");
 #endif
-#ifdef RK3366_MID
-    strcat(acVersion,"-3366MID");
+#ifdef DTARGET_BOARD_PLATFORM_RK3366
+	strcat(acVersion,"-3366");
 #endif
-#ifdef RK3399_MID
-    strcat(acVersion,"-3399MID");
+#ifdef DTARGET_BOARD_PLATFORM_RK3399
+	strcat(acVersion,"-3399");
 #endif
-#ifdef RK3368_BOX
-    strcat(acVersion,"-3368BOX");
+
+#ifdef RK_MID
+    strcat(acVersion,"-MID");
 #endif
-#ifdef RK3368_MID
-    strcat(acVersion,"-3368MID");
+#ifdef RK_BOX
+    strcat(acVersion,"-BOX");
 #endif
-#ifdef RK3399_BOX
-	strcat(acVersion,"-3399BOX");
+#ifdef RK_PHONE
+    strcat(acVersion,"-PHONE");
 #endif
-#ifdef RK3366_BOX
-	strcat(acVersion,"-3366BOX");
+#ifdef RK_VR
+    strcat(acVersion,"-VR");
 #endif
 
     property_set("sys.ghwc.version", acVersion);
@@ -1049,6 +1050,7 @@ static int initPlatform(hwcContext* ctx)
        ctx->isRk3288 ? "Yes" : "No",ctx->isRk3368 ? "Yes" : "No",
        ctx->isRk3366 ? "Yes" : "No",ctx->isRk3399 ? "Yes" : "No");
 
+    ctx->isVr = false;
     ctx->isBox = false;
     ctx->isMid = false;
     ctx->isPhone = false;
@@ -1059,13 +1061,15 @@ static int initPlatform(hwcContext* ctx)
     ctx->isBox = true;
 #elif RK_PHONE
     ctx->isPhone = true;
+#elif RK_VR
+    ctx->isVr = true;
 #else
     ALOGE("Who is the platform?NOT these:box,mid,phone?");
 #endif
 
-    ALOGI("isBox:%s;  isMid:%s;  isPhone:%s;",
+    ALOGI("isBox:%s;  isMid:%s;  isPhone:%s;  isBox:%s",
            ctx->isBox ? "Yes" : "No",ctx->isMid ? "Yes" : "No",
-           ctx->isPhone? "Yes" : "No");
+           ctx->isPhone? "Yes" : "No",ctx->isVr ? "Yes" : "No");
     return 0;
 }
 
@@ -8807,8 +8811,8 @@ hwc_set(
 {
     ATRACE_CALL();
     int ret[4] = {0,0,0,0};
-#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
-#ifdef RK3288_BOX
+#if (defined(GPU_G6110) || defined(RK_BOX))
+    #ifdef RK3288_BOX
     if(_contextAnchor->mLcdcNum==1) {
         if(getHdmiMode() == 1 || _contextAnchor->mHdmiSI.CvbsOn) {
             hotplug_set_overscan(0);
@@ -8816,11 +8820,11 @@ hwc_set(
     }else{
         hotplug_set_overscan(0);
     }
-#else
+    #else
     if(getHdmiMode() == 1 || _contextAnchor->mHdmiSI.CvbsOn) {
         hotplug_set_overscan(0);
     }
-#endif
+    #endif
 #endif
     for (uint32_t i = 0; i < numDisplays; i++) {
         hwc_display_contents_1_t* list = displays[i];
@@ -9041,7 +9045,7 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
         if(_contextAnchor1){
             _contextAnchor1->fb_blanked = 1;
         }
-#if defined(RK3288_MID) || defined(RK3366_MID) || defined(RK3399_MID)
+#if !defined(GPU_G6110) && (defined(RK_MID) || defined(RK_VR))
         hotplug_set_frame(context,0);
 #endif
 #ifdef RK3288_BOX
@@ -9069,7 +9073,7 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
             context->mHdmiSI.CvbsOn = true;
             context->mHdmiSI.HdmiOn = false;
         }
-#if defined(RK3288_MID) || defined(RK3366_MID) || defined(RK3399_MID)
+#if !defined(GPU_G6110) && (defined(RK_MID) || defined(RK_VR))
         hotplug_set_frame(context,0);
 #endif
 #ifdef RK3288_BOX
@@ -10238,7 +10242,7 @@ int hotplug_get_config(int flag){
     }
 #endif
 #else
-#if defined(RK3366_MID) || defined(RK3399_MID)
+#if defined(TARGET_BOARD_PLATFORM_RK3399) || defined(TARGET_BOARD_PLATFORM_RK3366)
 	if(context->fbFd > 0){
 	    fd  =  context->fbFd;
     }else{
@@ -10256,7 +10260,7 @@ int hotplug_get_config(int flag){
 	    ALOGE("hotplug_get_config:open /dev/graphics/fb4 fail");
         return -errno;
 	}
-#if !(defined(GPU_G6110) || defined(TARGET_BOARD_PLATFORM_RK3399))
+#if !(defined(GPU_G6110) || defined(TARGET_BOARD_PLATFORM_RK3399) || defined(TARGET_BOARD_PLATFORM_RK3366))
 #ifdef RK3288_BOX
     if(_contextAnchor->mLcdcNum == 2){
         info.reserved[3] |= 1;
@@ -10279,21 +10283,21 @@ int hotplug_get_config(int flag){
         _contextAnchor->fd_3d = context->fd_3d;
     }
 
-#if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
-    if(flag == 1){
+#if RK_BOX
+    if (flag == 1) {
         char buf[100];
         int width = 0;
         int height = 0;
         int fdExternal = -1;
-#ifdef RK3288_BOX
+        #ifdef RK3288_BOX
         if(_contextAnchor->mLcdcNum == 2){
             fdExternal = open("/sys/class/graphics/fb4/screen_info", O_RDONLY);
         }else{
             fdExternal = open("/sys/class/graphics/fb0/screen_info", O_RDONLY);
         }
-#else
+        #else
         fdExternal = open("/sys/class/graphics/fb0/screen_info", O_RDONLY);
-#endif
+        #endif
         if(fdExternal < 0){
             ALOGE("hotplug_get_config:open fb screen_info error,cvbsfd=%d",fdExternal);
             return -errno;
@@ -10309,6 +10313,7 @@ int hotplug_get_config(int flag){
     	info.yres = height;
     }
 #endif
+
 #if USE_QUEUE_DDRFREQ
     context->ddrFd = _contextAnchor->fbFd;
 #endif
