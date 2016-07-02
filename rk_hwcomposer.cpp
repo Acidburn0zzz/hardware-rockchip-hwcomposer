@@ -248,16 +248,16 @@ int hwc_init_version()
     } else {
         strcpy(acVersion,GHWC_VERSION);
     }
-#ifdef DTARGET_BOARD_PLATFORM_RK3288
+#ifdef TARGET_BOARD_PLATFORM_RK3288
     strcat(acVersion,"-3288");
 #endif
-#ifdef DTARGET_BOARD_PLATFORM_RK3368
+#ifdef TARGET_BOARD_PLATFORM_RK3368
     strcat(acVersion,"-3368");
 #endif
-#ifdef DTARGET_BOARD_PLATFORM_RK3366
+#ifdef TARGET_BOARD_PLATFORM_RK3366
 	strcat(acVersion,"-3366");
 #endif
-#ifdef DTARGET_BOARD_PLATFORM_RK3399
+#ifdef TARGET_BOARD_PLATFORM_RK3399
 	strcat(acVersion,"-3399");
 #endif
 
@@ -1118,7 +1118,7 @@ static int initPlatform(hwcContext* ctx)
     ALOGE("Who is the platform?NOT these:box,mid,phone?");
 #endif
 
-    ALOGI("isBox:%s;  isMid:%s;  isPhone:%s;  isBox:%s",
+    ALOGI("isBox:%s;  isMid:%s;  isPhone:%s;  isVr:%s",
            ctx->isBox ? "Yes" : "No",ctx->isMid ? "Yes" : "No",
            ctx->isPhone? "Yes" : "No",ctx->isVr ? "Yes" : "No");
     return 0;
