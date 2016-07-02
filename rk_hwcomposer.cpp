@@ -365,16 +365,36 @@ static int LayerZoneCheck( hwc_layer_1_t * Layer , int disp)
 
 void hwc_sync(hwc_display_contents_1_t  *list)
 {
-	if (list == NULL){
+	bool forceSkip = false;
+	if (list == NULL) {
 		return ;
 	}
-
+#ifndef RK_VR
+	forceSkip = false;
 	for (int i=0; i< (int)list->numHwLayers; i++){
 		if (list->hwLayers[i].acquireFenceFd>0){
 			sync_wait(list->hwLayers[i].acquireFenceFd,3001);  // add 40ms timeout
 		}
-    	ALOGV("acquireFenceFd=%d,name=%s",list->hwLayers[i].acquireFenceFd,list->hwLayers[i].LayerName);
+		ALOGV("acquireFenceFd=%d,name=%s",list->hwLayers[i].acquireFenceFd,list->hwLayers[i].LayerName);
 	}
+#else
+	for (int i=0; i< (int)list->numHwLayers; i++)
+	{
+		hwc_layer_1_t* layer = &list->hwLayers[i];
+		if (layer == NULL)
+			continue;
+
+		struct private_handle_t * hnd = (struct private_handle_t *)layer->handle;
+		if(hnd && (hnd->usage & 0x08000000))
+		{
+			forceSkip = true;
+		}
+		if (layer->acquireFenceFd > 0 && !forceSkip) {
+			sync_wait(layer->acquireFenceFd,3001);  // add 40ms timeout
+		}
+		ALOGV("acquireFenceFd=%d,name=%s",layer->acquireFenceFd,layer->LayerName);
+	}
+#endif
 
 }
 
@@ -412,6 +432,37 @@ void hwc_sync_release(hwc_display_contents_1_t  *list)
 		list->outbufAcquireFenceFd = -1;
 	}
    
+}
+
+int hwc_single_buffer_close_rel_fence(hwc_display_contents_1_t  *list)
+{
+	hwcContext * ctxp = _contextAnchor;
+	if (ctxp && !ctxp->isVr)
+		ALOGE("Compile error for this platform,not vr");
+
+	if (!list)
+		return -EINVAL;
+
+	for (int i=0; i< (int)list->numHwLayers; i++)
+	{
+		hwc_layer_1_t* layer = &list->hwLayers[i];
+		if (layer == NULL)
+			continue;
+
+		struct private_handle_t * hnd = (struct private_handle_t *) layer->handle;
+		if (layer == NULL)
+			continue;
+
+		if (layer->releaseFenceFd > -1 && (hnd->usage & 0x08000000))
+		{
+			ALOGD_IF(log(2),">>>close releaseFenceFd:%d,layername=%s",
+					layer->releaseFenceFd,layer->LayerName);
+			close(layer->releaseFenceFd);
+			layer->releaseFenceFd = -1;
+		}
+	}
+
+	return 0;
 }
 
 int rgaRotateScale(hwcContext * ctx,int tranform,int fd_dst, int Dstfmt,bool isTry)
@@ -8810,6 +8861,7 @@ hwc_set(
     )
 {
     ATRACE_CALL();
+    hwcContext * ctxp = _contextAnchor;
     int ret[4] = {0,0,0,0};
 #if (defined(GPU_G6110) || defined(RK_BOX))
     #ifdef RK3288_BOX
@@ -8817,7 +8869,7 @@ hwc_set(
         if(getHdmiMode() == 1 || _contextAnchor->mHdmiSI.CvbsOn) {
             hotplug_set_overscan(0);
         }
-    }else{
+    } else {
         hotplug_set_overscan(0);
     }
     #else
@@ -8846,9 +8898,11 @@ hwc_set(
     }
     for (uint32_t i = 0; i < numDisplays; i++) {
         hwc_display_contents_1_t* list = displays[i];
-        if(list){
+        if (list)
             hwc_sync_release(list);
-        }
+
+        if (list && ctxp && ctxp->isVr)
+            hwc_single_buffer_close_rel_fence(list);
     }
     hwc_check_fencefd(numDisplays,displays);
 #if ONLY_USE_ONE_VOP
