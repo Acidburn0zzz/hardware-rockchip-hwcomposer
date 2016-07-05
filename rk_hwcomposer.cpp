@@ -1212,12 +1212,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         if(strstr(layer->LayerName,"Starting@# ")){
             haveStartwin = true;
         }
-#if ENABLE_TRANSFORM_BY_RGA
-        if(layer->transform && Context->mtrsformcnt == 1
-            && SrcHnd->format != HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO){
-            trsfrmbyrga = true;
-        }
-#endif
+
 #if !ENABLE_LCDC_IN_NV12_TRANSFORM
         if(Context->mGtsStatus)
 #endif
@@ -1895,10 +1890,10 @@ int try_wins_dispatch_hor(void * ctx,hwc_display_contents_1_t * list)
         return -1;
     }
 
-    for(int k=0;k<pzone_mag->zone_cnt;k++)
+    for(int k = 0; k < pzone_mag->zone_cnt; k++)
     {
-        if(pzone_mag->zone_info[k].scale_err || pzone_mag->zone_info[k].toosmall
-            || pzone_mag->zone_info[k].zone_err) {
+         if(pzone_mag->zone_info[k].scale_err || pzone_mag->zone_info[k].toosmall ||
+            pzone_mag->zone_info[k].zone_err || pzone_mag->zone_info[k].transform) {
             ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
             return -1;
         }
@@ -5157,13 +5152,6 @@ check_layer(
        // ||(hfactor != 1.0f)  // because rga scale down too slowly,so return to opengl  ,huangds modify
        // ||(vfactor != 1.0f)  // because rga scale down too slowly,so return to opengl ,huangds modify
         || (handle == NULL)
-#if !OPTIMIZATION_FOR_TRANSFORM_UI
-        ||((Layer->transform != 0)&& (!videomode)
-#if ENABLE_TRANSFORM_BY_RGA
-          &&!strstr(Layer->LayerName,"Starting@# ")
-#endif
-          )
-#endif
 #if !(defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
         || skip_count<10 
 #endif
@@ -5201,16 +5189,6 @@ check_layer(
         ALOGV("4K video transform=%d,w=%d,h=%d go into GPU",Layer->transform,w,h);
         return HWC_FRAMEBUFFER;
     }
-#endif
-
-#if ENABLE_TRANSFORM_BY_RGA
-        if(Layer->transform
-            && handle->format != HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO
-            &&Context->mtrsformcnt == 1)
-        {
-            Context->mTrsfrmbyrga = true;
-            ALOGV("zxl:layer->transform=%d",Layer->transform);
-        }
 #endif
 
 #if !ENABLE_LCDC_IN_NV12_TRANSFORM
