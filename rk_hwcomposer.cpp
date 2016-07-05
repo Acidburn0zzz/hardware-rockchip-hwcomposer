@@ -7926,6 +7926,8 @@ static int hwc_fbPost(hwc_composer_device_1_t * dev, size_t numDisplays, hwc_dis
 static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
 {
     ATRACE_CALL();
+    hwcContext * ctxp = _contextAnchor;
+
     int dpyID = 0;
     int winID = 2;
 
@@ -7940,6 +7942,9 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
 
     if (context->isBox && !dpyID)
         winID = 0;
+
+    if (ctxp->mHdmiSI.NeedReDst && dpyID)
+	winID = 0;
     //if (context->fbFd>0 && !context->fb_blanked)
 #if defined(RK3288_MID)
     if(dpyID == 0 || (dpyID == 1 && !context->fb_blanked))
