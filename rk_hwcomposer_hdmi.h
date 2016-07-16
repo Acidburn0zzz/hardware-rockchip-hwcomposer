@@ -20,4 +20,5 @@ extern  int         mUsedVopNum;
 extern  bool        hdmi_noready;
 void     hwc_change_config();
 void     handle_hotplug_event(int hdmi_mode,int flag);
+void     hwc_change_screen_config(int dpy, int fb, int state);
 

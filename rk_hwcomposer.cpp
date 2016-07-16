@@ -10,6 +10,8 @@
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+
+//#include "version.h"
 #include "rk_hwcomposer.h"
 #include "rk_hwcomposer_api.h"
 #include <hardware/hardware.h>
@@ -1075,6 +1077,18 @@ bool is_gpu_or_nodraw(hwc_display_contents_1_t *list,int dpyID)
     return false;
 }
 
+static bool is_primary_and_resolution_changed(hwcContext * ctx)
+{
+    hwcContext * context = _contextAnchor;
+    bool ret = false;
+    if (ctx == context)
+        ret = true;
+    if (context && (context->isRk3399 || context->isRk3366))
+        ret = ret && context->mResolutionChanged;
+
+    return ret;
+}
+
 static int initPlatform(hwcContext* ctx)
 {
     if (!ctx)
@@ -1176,6 +1190,14 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         hwc_layer_1_t * layer = &list->hwLayers[i];
         hwc_region_t * Region = &layer->visibleRegionScreen;
         hwc_rect_t * SrcRect = &layer->sourceCrop;
+        hwc_rect_t tmpSourceCrop;
+        if (!strcmp(layer->LayerName,"DimLayer")) {
+            tmpSourceCrop.left = layer->displayFrame.left;
+            tmpSourceCrop.top = layer->displayFrame.top;
+            tmpSourceCrop.right = layer->displayFrame.right;
+            tmpSourceCrop.bottom = layer->displayFrame.bottom;
+            SrcRect = &tmpSourceCrop;
+        }
         hwc_rect_t * DstRect = &layer->displayFrame;
         bool IsBottom = !strcmp(BOTTOM_LAYER_NAME,layer->LayerName);
         bool IsTop = !strcmp(TOP_LAYER_NAME,layer->LayerName);
@@ -1260,6 +1282,10 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             is_stretch = true;
         }
 #endif
+
+        if (is_primary_and_resolution_changed(Context))
+            is_stretch = true;
+
         int left_min=0 ;
         int top_min=0;
         int right_max=0;
@@ -1776,6 +1802,8 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             Context->zone_manager.zone_info[j].disp_rect.bottom = DstRectScale.bottom;
         }
 #endif
+        if (!strcmp(layer->LayerName,"DimLayer"))
+            layer->handle = NULL;
     }
     Context->zone_manager.zone_cnt = j;
     if(tsize)
@@ -2313,6 +2341,11 @@ int try_wins_dispatch_mix_cross(void * ctx,hwc_display_contents_1_t * list)
     }
 #endif
 
+    if (is_primary_and_resolution_changed(Context)) {
+        ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
+        return -1;
+    }
+
     if(Context->Is3D){
         ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
         return -1;
@@ -2726,6 +2759,12 @@ int try_wins_dispatch_mix_up(void * ctx,hwc_display_contents_1_t * list)
         return -1;
     }
 #endif
+
+    if (is_primary_and_resolution_changed(Context)) {
+        ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
+        return -1;
+    }
+
 #if DUAL_VIEW_MODE
     if(Context != contextAh && Context->mIsDualViewMode) {
         int dpyPw = contextAh->dpyAttr[0].xres;
@@ -3199,6 +3238,11 @@ int try_wins_dispatch_mix_down(void * ctx,hwc_display_contents_1_t * list)
     }
 #endif
 
+    if (is_primary_and_resolution_changed(Context)) {
+        ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
+        return -1;
+    }
+
     if(contextAh->mHdmiSI.NeedReDst){
         ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
         return -1;
@@ -3644,6 +3688,12 @@ int try_wins_dispatch_mix_v2 (void * ctx,hwc_display_contents_1_t * list)
         return -1;
     }
 #endif
+
+    if (is_primary_and_resolution_changed(Context)) {
+        ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
+        return -1;
+    }
+
 #if DUAL_VIEW_MODE
     if(Context != contextAh && Context->mIsDualViewMode) {
         ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
@@ -5114,10 +5164,10 @@ check_layer(
     {
         Layer->handle= Context->mDimHandle;
         handle = (struct private_handle_t*) Layer->handle;
-        Layer->sourceCrop.left = Layer->displayFrame.left;
-        Layer->sourceCrop.top = Layer->displayFrame.top;
-        Layer->sourceCrop.right = Layer->displayFrame.right;
-        Layer->sourceCrop.bottom = Layer->displayFrame.bottom;
+        //Layer->sourceCrop.left = Layer->displayFrame.left;
+        //Layer->sourceCrop.top = Layer->displayFrame.top;
+        //Layer->sourceCrop.right = Layer->displayFrame.right;
+        //Layer->sourceCrop.bottom = Layer->displayFrame.bottom;
 
         Layer->flags &= ~HWC_SKIP_LAYER;
 
@@ -7037,19 +7087,19 @@ int hwc_pre_prepare(hwc_display_contents_1_t** displays, int flag)
     if(contexte!=NULL){
         contexte->Is3D = false;
     }
-#ifdef RK3288_BOX
-    if(contextp->mLcdcNum == 2){
+
+    if(contextp->mLcdcNum == 2 || contextp->isRk3399 || contextp->isRk3366){
         int xres = contextp->dpyAttr[HWC_DISPLAY_PRIMARY].xres;
         int yres = contextp->dpyAttr[HWC_DISPLAY_PRIMARY].yres;
         int relxres = contextp->dpyAttr[HWC_DISPLAY_PRIMARY].relxres;
         int relyres = contextp->dpyAttr[HWC_DISPLAY_PRIMARY].relyres;
-        if(xres != relxres || yres != relyres){
+        if (xres != relxres || yres != relyres) {
             contextp->mResolutionChanged = true;
-        }else{
+        } else {
             contextp->mResolutionChanged = false;
         }
     }
-#endif
+
 #ifdef SUPPORT_STEREO
 #if SUPPORTFORCE3D
     char pro_valuep[PROPERTY_VALUE_MAX];
@@ -7671,7 +7721,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
             goto GpuComP;
         }
     }
-#if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
+#if (defined(RK3368_BOX) || defined(RK3288_BOX))
 #ifdef RK3288_BOX
 	if(_contextAnchor->mLcdcNum == 1)
 #endif
@@ -8001,7 +8051,7 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
                 }
             }
          }else{
-#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX))
             #ifdef RK3288_BOX
             if(_contextAnchor->mLcdcNum==1)
             #endif
@@ -8020,6 +8070,11 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
             hotplug_reset_dstposition(&fb_info,2);
         }
 #endif
+
+        if (is_primary_and_resolution_changed(context)) {
+                hotplug_reset_dstposition(&fb_info,2);
+        }
+
 #if DUAL_VIEW_MODE
         if(context != _contextAnchor && context->mIsDualViewMode) {
             dual_view_vop_config(&fb_info);
@@ -8123,7 +8178,7 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
                 }
             }
         } else {
-#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX))
 #ifdef RK3288_BOX
             if(_contextAnchor->mLcdcNum==1)
 #endif
@@ -8143,6 +8198,10 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
             hotplug_reset_dstposition(&(hfi.fb_info),2);
         }
 #endif
+        if (is_primary_and_resolution_changed(context)) {
+            hotplug_reset_dstposition(&(hfi.fb_info),2);
+        }
+
 #if DUAL_VIEW_MODE
         if(context != _contextAnchor && context->mIsDualViewMode) {
             dual_view_vop_config(&hfi.fb_info);
@@ -8546,6 +8605,9 @@ static void hwc_static_screen_opt_handler(int sig)
 static int hwc_static_screen_opt_set()
 {
     hwcContext * context = _contextAnchor;
+
+    if (context->isVr)
+	return 0;
 
     struct itimerval tv = {{0,0},{0,0}};
     if (-1 != context->mLastCompType) {
@@ -8995,6 +9057,41 @@ static void handle_vsync_event(hwcContext * context )
         ALOGE(" clock_nanosleep ERR!!!");
     }
 */
+}
+
+void hwc_change_screen_config(int dpy, int fb, int state) {
+    hwcContext * context = _contextAnchor;
+    if (context) {
+        char buf[100];
+        int width = 0;
+        int height = 0;
+        int fd = -1;
+        fd = open("/sys/class/graphics/fb0/screen_info", O_RDONLY);
+        if(fd < 0)
+        {
+            ALOGE("hwc_change_config:open fb0 screen_info error,fd=%d",fd);
+            return;
+        }
+        if(read(fd,buf,sizeof(buf)) < 0)
+        {
+            ALOGE("error reading fb0 screen_info: %s", strerror(errno));
+            return;
+        }
+        close(fd);
+        sscanf(buf,"xres:%d yres:%d",&width,&height);
+        ALOGD("hwc_change_config:width=%d,height=%d",width,height);
+        context->dpyAttr[HWC_DISPLAY_PRIMARY].relxres = width;
+        context->dpyAttr[HWC_DISPLAY_PRIMARY].relyres = height;
+#if HTGFORCEREFRESH
+        pthread_mutex_lock(&context->mRefresh.mlk);
+        context->mRefresh.count = 0;
+        ALOGD_IF(log(HLLTWO),"Htg:mRefresh.count=%d",context->mRefresh.count);
+        pthread_mutex_unlock(&context->mRefresh.mlk);
+        pthread_cond_signal(&context->mRefresh.cond);
+#endif
+    }
+
+    return;
 }
 
 void hwc_change_config(){
@@ -10727,6 +10824,11 @@ void *hotplug_try_register(void *arg)
     HWC_UNREFERENCED_PARAMETER(arg);
     hwcContext * context = _contextAnchor;
     int count = 0;
+
+    if (context->isRk3399 && context->isBox) {
+        hwc_change_screen_config(0, 0, 1);
+        goto READY;
+    }
 #ifndef RK3368_BOX
 #if RK3288_BOX
     if(context->mLcdcNum == 2)

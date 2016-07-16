@@ -76,13 +76,18 @@ void rk_check_hdmi_uevents(const char *buf,int len)
     int fbIndex = 0;
     int screenType = 0;
     int statusFlag = 0;
-    int hdmiStatus = -1;rk_check_hdmi_state();
+    int hdmiStatus = -1;
     ret = rk_parse_uevent_buf(buf,&screenType,&statusFlag,&fbIndex,&vopId,len);
     if(ret != 1) return;
-    hdmiStatus = rk_check_hdmi_state();
-    g_hdmi_mode = hdmiStatus;
-    handle_hotplug_event(statusFlag,screenType);
-    ALOGI("uevent receive!type=%d,flag=%d,line=%d",screenType,statusFlag,__LINE__);
+    g_hdmi_mode = rk_check_hdmi_state();
+
+    if (fbIndex == 0)
+        hwc_change_screen_config(0, fbIndex, statusFlag);
+    else
+        handle_hotplug_event(statusFlag,screenType);
+
+    ALOGI("uevent receive!type=%d,status=%d,hdmi=%d,vop=%d,fb=%d,line=%d",
+                screenType, statusFlag, g_hdmi_mode, vopId, fbIndex, __LINE__);
 
     return;
 }
