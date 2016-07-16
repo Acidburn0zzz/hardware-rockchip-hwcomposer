@@ -8912,15 +8912,23 @@ static int hwc_event_control(struct hwc_composer_device_1* dev,
 {
 
     hwcContext * context = _contextAnchor;
+
     bool isLog = log(HLLFIV);
     ALOGD_IF(isLog,"D_EN[%d,%d]",dpy,enabled);
-    if(dpy==1 && _contextAnchor1){
+
+    if (context && context->isVr) {
+        ALOGD_IF(isLog,"D_EN[%d,%d] vr return",dpy,enabled);
+	return 0;
+    }
+
+    if (dpy==1 && _contextAnchor1) {
         context = _contextAnchor1;
-        if(context->fbFd <= 0){
+        if (context->fbFd <= 0) {
             ALOGW("D_EN[%d,%d] ERROR",dpy,enabled);
             return 0;
         }
     }
+
     switch (event) {
     case HWC_EVENT_VSYNC:
     {
