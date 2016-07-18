@@ -11,7 +11,7 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
-//#include "version.h"
+#include "version.h"
 #include "rk_hwcomposer.h"
 #include "rk_hwcomposer_api.h"
 #include <hardware/hardware.h>

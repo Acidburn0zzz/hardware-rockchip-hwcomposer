@@ -16,6 +16,8 @@ LOCAL_PATH := $(call my-dir)
 #
 include $(CLEAR_VARS)
 
+$(info $(shell $(LOCAL_PATH)/version.sh))
+
 LOCAL_SRC_FILES := \
 	rk_hwcomposer.cpp \
 	rk_hwc_com.cpp \
@@ -199,9 +201,6 @@ endif
 endif
 
 LOCAL_CFLAGS += -DPLATFORM_SDK_VERSION=$(PLATFORM_SDK_VERSION)
-
-MAJOR_VERSION := "RK_GRAPHICS_VER=commit-id:$(shell cd $(LOCAL_PATH) && git log  -1 --oneline | awk '{print $1}')"
-LOCAL_CFLAGS += -DRK_GRAPHICS_VER=\"$(MAJOR_VERSION)\"
 
 LOCAL_MODULE := hwcomposer.$(TARGET_BOARD_HARDWARE)
 LOCAL_MODULE_TAGS    := optional
