@@ -452,7 +452,7 @@ int hwc_single_buffer_close_rel_fence(hwc_display_contents_1_t  *list)
 			continue;
 
 		struct private_handle_t * hnd = (struct private_handle_t *) layer->handle;
-		if (layer == NULL)
+		if (hnd == NULL)
 			continue;
 
 		if (layer->releaseFenceFd > -1 && (hnd->usage & 0x08000000))
