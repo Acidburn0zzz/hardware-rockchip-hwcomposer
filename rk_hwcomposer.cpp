@@ -2078,7 +2078,7 @@ int try_wins_dispatch_hor(void * ctx,hwc_display_contents_1_t * list)
             }
         }
     }  
-
+#ifndef RK_VR
     //third dispatch common zones win
     for (i = 0; i < 4; i++)
     {
@@ -2119,6 +2119,28 @@ int try_wins_dispatch_hor(void * ctx,hwc_display_contents_1_t * list)
             ALOGV("srot_tal[%d][1].dispatched=%d",i,srot_tal[i][1]);
         }
     }
+#else
+    // third dispatch common zones win
+    for(i=0;i<4;i++)
+    {
+        if( srot_tal[i][1] == 0)  // had not dispatched
+        {
+            for(j=0;j<4;j++)
+            {
+                if(win_disphed_flag[j] == 0) // find the win had not dispatched
+                    break;
+            }  
+            if(j>=4)
+            {
+                ALOGE("4 wins had beed dispatched ");
+                return -1;
+            }    
+            srot_tal[i][1] = win_disphed[j];
+            win_disphed_flag[j] = 1;
+            ALOGV("srot_tal[%d][1].dispatched=%d",i,srot_tal[i][1]);
+        }
+    }
+#endif
 
     for(i=0;i<pzone_mag->zone_cnt;i++)
     {        
@@ -6604,6 +6626,8 @@ bool hwc_check_cfg(hwcContext * ctx,struct rk_fb_win_cfg_data fb_info)
         ret = false;
         return ret;
     }
+    if (ctx->isVr)
+	return true;
     int width,height;
     hwcContext * context = _contextAnchor;
     if(ctx==context) {
@@ -7970,6 +7994,9 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
 
     if (context->isBox && !dpyID)
         winID = 0;
+
+    if (context->isVr)
+	winID = 0;
 
     if (ctxp->mHdmiSI.NeedReDst && dpyID)
 	winID = 0;
