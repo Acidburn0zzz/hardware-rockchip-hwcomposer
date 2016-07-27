@@ -7704,7 +7704,8 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
             ALOGD_IF(log(HLLONE),"T:RGA copyblit fail");
             context->mRgaTBI.lastfd = 0;
             int index_v = context->mCurVideoIndex % MaxVideoBackBuffers;
-            close(context->relFenceFd[index_v]);
+            if (context->relFenceFd[index_v] > 0)
+                close(context->relFenceFd[index_v]);
             context->relFenceFd[index_v] = -1;
             goto GpuComP;
         }
