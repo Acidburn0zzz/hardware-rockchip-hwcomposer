@@ -1244,6 +1244,10 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
                 trsfrmbyrga = true;
             }
         }
+
+	if (SrcHnd && SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_10)
+	    Context->mHasYuvTenBit = true;
+
         if(j>=MaxZones){
             ALOGD("Overflow [%d] >max=%d",m+j,MaxZones);
             return -1;
@@ -7397,13 +7401,14 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
             goto GpuComP;
         }
     }
-    context->mVideoMode=false;
-    context->mVideoRotate=false;
-    context->mIsMediaView=false;
-    context->mHdmiSI.mix_up=false;
-    context->mHdmiSI.mix_vh=false;
+    context->mVideoMode = false;
+    context->mVideoRotate = false;
+    context->mIsMediaView = false;
+    context->mHdmiSI.mix_up = false;
+    context->mHdmiSI.mix_vh = false;
     context->mNeedRgaTransform = false;
-    context->mNV12_VIDEO_VideoMode=false;
+    context->mNV12_VIDEO_VideoMode = false;
+    context->mHasYuvTenBit = false;
 #if G6110_SUPPORT_FBDC
     context->bFbdc = false;
 #endif
@@ -7771,7 +7776,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
 
     context->mLastCompType = context->zone_manager.mCmpType;
 
-    if (context->mOneWinOpt)
+    if (context->mOneWinOpt && !context->mHasYuvTenBit)
         goto GpuComP;
 
     return 0;

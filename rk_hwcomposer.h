@@ -123,8 +123,8 @@
 #define HWCE                            1           //HWC_DISPLAY_EXTERNAL
 #define HWCV                            2           //HWC_DISPLAY_VIRTUAL
 
-#define GHWC_VERSION                    "2.098"
-#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.098"
+#define GHWC_VERSION                    "2.099"
+#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.099"
 
 #ifdef GPU_G6110
 #if G6110_SUPPORT_FBDC
@@ -645,6 +645,7 @@ typedef struct _hwcContext
 
     /*****************policy *****************************/
     bool                           mMultiwindow;
+    bool                           mHasYuvTenBit;
     int                            mLastCompType;
     int                            mOneWinOpt;
 
