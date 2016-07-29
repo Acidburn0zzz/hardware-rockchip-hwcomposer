@@ -7123,6 +7123,9 @@ int hwc_pre_prepare(hwc_display_contents_1_t** displays, int flag)
             contextp->mResolutionChanged = false;
         }
     }
+    #if VIRTUAL_WIDTH && VIRTUAL_HEIGHT
+    contextp->mResolutionChanged = true;
+    #endif
 
 #ifdef SUPPORT_STEREO
 #if SUPPORTFORCE3D
@@ -11024,6 +11027,10 @@ int hotplug_reset_dstposition(struct rk_fb_win_cfg_data * fb_info,int flag)
     case 2:
         w_source = context->dpyAttr[HWC_DISPLAY_PRIMARY].xres;
         h_source = context->dpyAttr[HWC_DISPLAY_PRIMARY].yres;
+	#if VIRTUAL_HEIGHT && VIRTUAL_WIDTH
+	w_source = VIRTUAL_WIDTH;
+	h_source = VIRTUAL_HEIGHT;
+	#endif
         w_dst    = context->dpyAttr[HWC_DISPLAY_PRIMARY].relxres;
         h_dst    = context->dpyAttr[HWC_DISPLAY_PRIMARY].relyres;
         break;
@@ -11050,9 +11057,10 @@ int hotplug_reset_dstposition(struct rk_fb_win_cfg_data * fb_info,int flag)
                         (unsigned short)(fb_info->win_par[i].area_par[j].xsize * w_scale);
                     fb_info->win_par[i].area_par[j].ysize =
                         (unsigned short)(fb_info->win_par[i].area_par[j].ysize * h_scale);
-                    ALOGD_IF(log(HLLONE),"Adjust dst to => [%d,%d,%d,%d]",
+                    ALOGD_IF(log(HLLONE),"Adjust dst to => [%d,%d,%d,%d][%d,%d,%d,%d]",
                         fb_info->win_par[i].area_par[j].xpos,fb_info->win_par[i].area_par[j].ypos,
-                        fb_info->win_par[i].area_par[j].xsize,fb_info->win_par[i].area_par[j].ysize);
+                        fb_info->win_par[i].area_par[j].xsize,fb_info->win_par[i].area_par[j].ysize,
+			w_source, h_source, w_dst, h_dst);
                 }
             }
         }
