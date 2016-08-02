@@ -7127,9 +7127,6 @@ int hwc_pre_prepare(hwc_display_contents_1_t** displays, int flag)
             contextp->mResolutionChanged = false;
         }
     }
-    #if VIRTUAL_WIDTH && VIRTUAL_HEIGHT
-    contextp->mResolutionChanged = true;
-    #endif
 
 #ifdef SUPPORT_STEREO
 #if SUPPORTFORCE3D
@@ -9095,6 +9092,32 @@ static void handle_vsync_event(hwcContext * context )
 */
 }
 
+void hwc_primary_screen_query() {
+    hwcContext * context = _contextAnchor;
+    if (context) {
+        char buf[100];
+        int width = 0;
+        int height = 0;
+        int fd = -1;
+        fd = open("/sys/class/graphics/fb0/screen_info", O_RDONLY);
+        if (fd < 0) {
+            ALOGE("hwc_change_config:open fb0 screen_info error,fd=%d",fd);
+            return;
+        }
+        if (read(fd,buf,sizeof(buf)) < 0) {
+            ALOGE("error reading fb0 screen_info: %s", strerror(errno));
+            return;
+        }
+        close(fd);
+        sscanf(buf,"xres:%d yres:%d",&width,&height);
+        ALOGD("hwc_change_config:width=%d,height=%d",width,height);
+        context->dpyAttr[HWC_DISPLAY_PRIMARY].relxres = width;
+        context->dpyAttr[HWC_DISPLAY_PRIMARY].relyres = height;
+    }
+
+    return;
+}
+
 void hwc_change_screen_config(int dpy, int fb, int state) {
     hwcContext * context = _contextAnchor;
     if (context) {
@@ -9635,7 +9658,7 @@ hwc_device_open(
     int err;
     int stride_gr;
     int i;
-
+    int vir_w,vir_h;
     LOGD("%s(%d):Open hwc device in thread=%d",
          __FUNCTION__, __LINE__, gettid());
 
@@ -10169,6 +10192,12 @@ hwc_device_open(
     }
 #endif
     signal(SIGALRM, hwc_static_screen_opt_handler);
+
+    vir_w =  hwc_get_int_property("sys.vr.vir_w","0");
+    vir_h =  hwc_get_int_property("sys.vr.vir_h","0");
+
+    if(vir_w && vir_h)
+        hwc_primary_screen_query();
 
     return 0;
 
@@ -11032,10 +11061,6 @@ int hotplug_reset_dstposition(struct rk_fb_win_cfg_data * fb_info,int flag)
     case 2:
         w_source = context->dpyAttr[HWC_DISPLAY_PRIMARY].xres;
         h_source = context->dpyAttr[HWC_DISPLAY_PRIMARY].yres;
-	#if VIRTUAL_HEIGHT && VIRTUAL_WIDTH
-	w_source = VIRTUAL_WIDTH;
-	h_source = VIRTUAL_HEIGHT;
-	#endif
         w_dst    = context->dpyAttr[HWC_DISPLAY_PRIMARY].relxres;
         h_dst    = context->dpyAttr[HWC_DISPLAY_PRIMARY].relyres;
         break;

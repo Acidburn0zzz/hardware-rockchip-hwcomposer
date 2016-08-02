@@ -74,8 +74,7 @@
 #define ONLY_USE_ONE_VOP                1           //1:use one vop,rk3288 box depend on BOX_USE_TWO_VOP
 #endif
 
-#define VIRTUAL_WIDTH			0
-#define VIRTUAL_HEIGHT			0
+
 
 //Command macro
 #define FB1_IOCTL_SET_YUV_ADDR	        0x5002
