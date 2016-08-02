@@ -9658,7 +9658,7 @@ hwc_device_open(
     int err;
     int stride_gr;
     int i;
-    int vir_w,vir_h;
+    int xxx_w,xxx_h;
     LOGD("%s(%d):Open hwc device in thread=%d",
          __FUNCTION__, __LINE__, gettid());
 
@@ -10193,10 +10193,10 @@ hwc_device_open(
 #endif
     signal(SIGALRM, hwc_static_screen_opt_handler);
 
-    vir_w =  hwc_get_int_property("sys.vr.vir_w","0");
-    vir_h =  hwc_get_int_property("sys.vr.vir_h","0");
+    xxx_w =  hwc_get_int_property("sys.xxx.x_w","0");
+    xxx_h =  hwc_get_int_property("sys.xxx.x_h","0");
 
-    if(vir_w && vir_h)
+    if(xxx_w && xxx_h)
         hwc_primary_screen_query();
 
     return 0;
