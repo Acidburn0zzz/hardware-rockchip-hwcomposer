@@ -8,6 +8,11 @@
 
 */
 
+// #define LOG_TAG "hwc"
+// #define ENABLE_DEBUG_LOG
+// #define ENABLE_VERBOSE_LOG
+#include <log/custom_log.h>
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
@@ -33,6 +38,10 @@
 #include <ion/ion.h>
 #include <linux/rockchip_ion.h>
 #include <utils/Trace.h>
+
+#include "rk_hwc_debug_utils.h"
+
+/*---------------------------------------------------------------------------*/
 
 //primary,hotplug and virtual device context
 static hwcContext * _contextAnchor = NULL;
@@ -86,7 +95,14 @@ static void             initCrcTable(void);
 static int              fence_merge(char * value, int fd1, int fd2);
 static int              dual_view_vop_config(struct rk_fb_win_cfg_data * fbinfo);
 
+/*-------------------------------------------------------*/
 
+inline static bool isAfbcInternalFormat(uint64_t internal_format)
+{
+    return (internal_format & GRALLOC_ARM_INTFMT_AFBC);
+}
+
+/*---------------------------------------------------------------------------*/
 
 int hwChangeFormatandroidL(IN int fmt)
 {
@@ -1287,6 +1303,13 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         }
 #endif
 
+#ifdef USE_AFBC_LAYER
+        if ( isAfbcInternalFormat(SrcHnd->internal_format) )
+        {
+            is_stretch = true; // .trick : 为保证 afbc_layer 可以送 win0, 目前只保证 win0 可正常显示 afbc_layer.
+        }
+#endif
+
         if (is_primary_and_resolution_changed(Context))
             is_stretch = true;
 
@@ -1745,6 +1768,12 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
                 - (int) ((DstRect->bottom - dstRects[0].bottom) * vfactor);
             }
             Context->zone_manager.zone_info[j].format = SrcHnd->format;
+
+#ifdef USE_AFBC_LAYER
+            D("to set internal_format to 0x%llx.", SrcHnd->internal_format);
+            Context->zone_manager.zone_info[j].internal_format = SrcHnd->internal_format;
+#endif
+
             Context->zone_manager.zone_info[j].width = SrcHnd->width;
             Context->zone_manager.zone_info[j].height = SrcHnd->height;
             Context->zone_manager.zone_info[j].stride = SrcHnd->stride;
@@ -5413,7 +5442,6 @@ _DumpSurface(
                 FILE * pfile = NULL;
                 char layername[100] ;
 
-
                 if( handle_pre == NULL || handle_pre->format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO)
                     continue;
 
@@ -5436,11 +5464,8 @@ _DumpSurface(
                 }
             }
         }
-
     }
     property_set("sys.dump","false");
-
-
 }
 #endif
 
@@ -6669,7 +6694,9 @@ bool hwc_check_cfg(hwcContext * ctx,struct rk_fb_win_cfg_data fb_info)
                 if(win_id >= 2){
                     ret = ret && (xact == xsize);
                     ret = ret && (yact == ysize);
+#ifndef USE_AFBC_LAYER
                     ret = ret && (data_format <= 7);
+#endif
                 }
 
                 if(!ret){
@@ -6892,6 +6919,45 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
             fb_info.win_par[win_no-1].area_par[area_no].xvir = pzone_mag->zone_info[i].stride;
             fb_info.win_par[win_no-1].area_par[area_no].yvir = pzone_mag->zone_info[i].height;
         }
+
+#ifdef USE_AFBC_LAYER
+        {
+            uint64_t internal_format = pzone_mag->zone_info[i].internal_format;
+            D("internal_format of zone_%d: 0x%llx.", i, internal_format);
+
+            if ( isAfbcInternalFormat(internal_format) )
+            {
+                uint64_t index_of_arm_hal_format = internal_format & GRALLOC_ARM_INTFMT_FMT_MASK;
+
+                switch (  index_of_arm_hal_format )
+                {
+                    case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGBA_8888:
+                        D("to set afbc_config for rgba_888.");
+                        // fb_info.win_par[win_no-1].area_par[area_no].fbdc_data_format = FBDC_ARGB_888;
+                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_data_format = 0x27;
+                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_en = 1;
+                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_cor_en = 0;
+
+                        fb_info.win_par[win_no-1].area_par[area_no].data_format = 0x27;
+                        break;
+
+                    case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGBX_8888:
+                        D("to set afbc_config for rgbx_888.");
+                        // fb_info.win_par[win_no-1].area_par[area_no].fbdc_data_format = FBDC_ARGB_888;
+                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_data_format = 0x27;
+                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_en = 1;
+                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_cor_en = 0;
+
+                        fb_info.win_par[win_no-1].area_par[area_no].data_format = 0x27;
+                        break;
+
+                    default:
+                        E("unsupported index_of_arm_hal_format : 0x%llx.", index_of_arm_hal_format);
+                        break;
+                }
+            }
+        }
+#endif
 
 #if G6110_SUPPORT_FBDC
         //zxl: xact need 16bytes aligned and yact need 4bytes aligned in FBDC area.
@@ -8114,6 +8180,72 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
             goto UseFence;
         }
 #endif
+
+#ifdef USE_AFBC_LAYER
+        uint64_t internal_format = handle->internal_format;
+        D("internal_format of fb_target_layer : 0x%llx.", internal_format);
+
+        if ( isAfbcInternalFormat(internal_format) )
+        {
+            uint64_t index_of_arm_hal_format = internal_format & GRALLOC_ARM_INTFMT_FMT_MASK;
+            struct rk_fb_area_par* pAreaPar = &(fb_info.win_par[0].area_par[0] );
+
+            switch (  index_of_arm_hal_format )
+            {
+                case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGBA_8888:
+                    D("to set afbc_format for rgba_8888.");
+                    // pAreaPar->fbdc_data_format =  FBDC_ARGB_888;
+                    pAreaPar->fbdc_data_format = 0x27;
+                    pAreaPar->fbdc_en = 1;
+                    pAreaPar->fbdc_cor_en = 0;
+
+                    pAreaPar->data_format = 0x27;
+                    break;
+
+                case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGBX_8888:
+                    D("to set afbc_format for rgbx_8888.");
+                    // pAreaPar->fbdc_data_format =  FBDC_ARGB_888;
+                    pAreaPar->fbdc_data_format = 0x27;
+                    pAreaPar->fbdc_en = 1;
+                    pAreaPar->fbdc_cor_en = 0;
+
+                    pAreaPar->data_format = 0x27;
+                    break;
+                case GRALLOC_ARM_HAL_FORMAT_INDEXED_BGRA_8888:
+                    D("to set afbc_format for bgra_8888.");
+                    // pAreaPar->fbdc_data_format =  FBDC_ARGB_888;
+                    pAreaPar->fbdc_data_format = 0x27;
+                    pAreaPar->fbdc_en = 1;
+                    pAreaPar->fbdc_cor_en = 0;
+
+                    pAreaPar->data_format = 0x27;
+                    break;
+
+                case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGB_888:
+                    D("to set afbc_format for rgb_888.");
+                    pAreaPar->fbdc_data_format = 0x28;
+                    pAreaPar->fbdc_en = 1;
+                    pAreaPar->fbdc_cor_en = 0;
+
+                    pAreaPar->data_format = 0x28;
+                    break;
+
+                case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGB_565:
+                    D("to set afbc_format for rgb_565.");
+                    pAreaPar->fbdc_data_format = 0x26;
+                    pAreaPar->fbdc_en = 1;
+                    pAreaPar->fbdc_cor_en = 0;
+
+                    pAreaPar->data_format = 0x26;
+                    break;
+
+                default:
+                    E("unsupported index_of_arm_hal_format : 0x%llx.", index_of_arm_hal_format);
+                    break;
+            }
+        }
+#endif
+
         if(ioctl(context->fbFd, RK_FBIOSET_CONFIG_DONE, &fb_info)){
             ALOGE("ID=%d:ioctl fail:%s",context!=_contextAnchor,strerror(errno));
             dump_config_info(fb_info,context,3);
@@ -8178,6 +8310,8 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
 
     //struct rk_fb_win_cfg_data fb_info;
     int comType = context->zone_manager.mCmpType;
+
+    D("to get hwc_fb_config_for_next_frame from 'list'.");
     hwc_collect_cfg(context,list,&hfi,mix_flag,false);
     if(comType == HWC_MIX_FPS) {
 #ifdef SUPPORT_STEREO
@@ -8241,6 +8375,9 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
             goto UseFence;
         }
 #endif
+
+        DUMP_FB_CONFIG_FOR_NEXT_FRAME(&(hfi.fb_info), 1);
+        D("to perform RK_FBIOSET_CONFIG_DONE for hwc_set_lcdc with mix_flag '%d'.", mix_flag);
         if(ioctl(context->fbFd, RK_FBIOSET_CONFIG_DONE, &(hfi.fb_info))) {
             ALOGE("ID=%d:ioctl fail:%s",dpyID,strerror(errno));
             dump_config_info(hfi.fb_info,context,3);

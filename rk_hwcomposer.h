@@ -327,6 +327,9 @@ typedef struct _ZoneInfo
 	float       vfactor;
 	float       hfactor;
 	int         format;
+#ifdef USE_AFBC_LAYER
+	uint64_t    internal_format;
+#endif
 	int         zone_index;
 	int         layer_index;
 	int         transform;
