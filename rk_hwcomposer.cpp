@@ -97,10 +97,12 @@ static int              dual_view_vop_config(struct rk_fb_win_cfg_data * fbinfo)
 
 /*-------------------------------------------------------*/
 
+#ifdef USE_AFBC_LAYER
 inline static bool isAfbcInternalFormat(uint64_t internal_format)
 {
     return (internal_format & GRALLOC_ARM_INTFMT_AFBC);
 }
+#endif
 
 /*---------------------------------------------------------------------------*/
 
