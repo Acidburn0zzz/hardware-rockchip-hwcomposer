@@ -6502,7 +6502,7 @@ int dump_config_info(struct rk_fb_win_cfg_data fb_info ,hwcContext * context, in
             if(fb_info.win_par[i].area_par[j].ion_fd || fb_info.win_par[i].area_par[j].phy_addr)
             {
                 listIsNull = false;
-                ALOGD("%s win[%d],area[%d],z_win[%d,%d],[%d,%d,%d,%d]=>[%d,%d,%d,%d],w_h_f[%d,%d,%d],fd=%d,addr=%x,fbFd=%d",
+                ALOGD("%s win[%d],area[%d],z_win[%d,%d],[%d,%d,%d,%d]=>[%d,%d,%d,%d],w_h_f[%d,%d,%d],fd=%d,addr=%x,fbFd=%d,fenceFd=%d",
                     context==_contextAnchor ? poutbuf : eoutbuf,
                     i,j,
                     fb_info.win_par[i].z_order,
@@ -6520,11 +6520,38 @@ int dump_config_info(struct rk_fb_win_cfg_data fb_info ,hwcContext * context, in
                     fb_info.win_par[i].area_par[j].data_format,
                     fb_info.win_par[i].area_par[j].ion_fd,
                     fb_info.win_par[i].area_par[j].phy_addr,
-                    context->fbFd);
+                    context->fbFd,
+                    fb_info.win_par[i].area_par[j].acq_fence_fd);
             }
         }
     }
     ALOGD_IF(listIsNull,"fbinfo is null when collect config");
+
+    return 0;
+}
+
+int hwc_collect_acquire_fence_fd(hwcContext * ctx,hwc_display_contents_1_t *list)
+{
+    ZoneManager* pzone_mag = NULL;
+    int i,j,fd,layerIndex,num;
+    char value[20] = "merge-acq";
+
+    if (!ctx || !list)
+        return -1;
+
+    num = list->numHwLayers;
+    pzone_mag = &(ctx->zone_manager);
+
+#if USE_HWC_FENCE
+    for(i = 0; i < pzone_mag->zone_cnt; i++) {
+        fd = -1;
+        layerIndex = pzone_mag->zone_info[i].layer_index;
+        if (layerIndex < num)
+            fd = list->hwLayers[layerIndex].acquireFenceFd;
+
+        pzone_mag->zone_info[i].acq_fence_fd = fd;
+    }
+#endif
 
     return 0;
 }
@@ -6899,7 +6926,10 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
                         pzone_mag->zone_info[i].direct_fd: pzone_mag->zone_info[i].layer_fd;     
         fb_info.win_par[win_no-1].area_par[area_no].phy_addr = pzone_mag->zone_info[i].addr;
 #if USE_HWC_FENCE
-        fb_info.win_par[win_no-1].area_par[area_no].acq_fence_fd = -1;//pzone_mag->zone_info[i].acq_fence_fd;
+        if (context->isRk3399)
+            fb_info.win_par[win_no-1].area_par[area_no].acq_fence_fd = pzone_mag->zone_info[i].acq_fence_fd;
+        else
+            fb_info.win_par[win_no-1].area_par[area_no].acq_fence_fd = -1;
 #else
         fb_info.win_par[win_no-1].area_par[area_no].acq_fence_fd = -1;
 #endif
@@ -7156,7 +7186,10 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
         }
         fb_info.win_par[win_no-1].area_par[0].ion_fd = handle->share_fd;
 #if USE_HWC_FENCE
-        fb_info.win_par[win_no-1].area_par[0].acq_fence_fd = -1;//fbLayer->acquireFenceFd;
+        if (context->isRk3399)
+            fb_info.win_par[win_no-1].area_par[0].acq_fence_fd = fbLayer->acquireFenceFd;
+        else
+            fb_info.win_par[win_no-1].area_par[0].acq_fence_fd = -1;
 #else
         fb_info.win_par[win_no-1].area_par[0].acq_fence_fd = -1;
 #endif
@@ -8895,8 +8928,7 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
         surf = list->sur;        
     }
 
-    if ((context && -1 != context->mLastCompType)
-			     || (context && !context->isRk3399))
+    if (context && !context->isRk3399)
         hwc_sync(list);
 
     /* Check device handle. */
@@ -8914,6 +8946,9 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
     } else if(list == NULL) {
         return -1;
     }
+
+    if (context && context->isRk3399)
+        hwc_collect_acquire_fence_fd(context, list);
 
     if(ctxp->mBootCnt < BOOTCOUNT) {
         int offset = 0;
