@@ -261,7 +261,7 @@ void hwc_list_nodraw(hwc_display_contents_1_t  *list)
 
 int hwc_init_version()
 {
-    char acVersion[50];
+    char acVersion[100];
     memset(acVersion,0,sizeof(acVersion));
     if (sizeof(GHWC_VERSION) > 12) {
         strncpy(acVersion,GHWC_VERSION,12);
@@ -294,6 +294,8 @@ int hwc_init_version()
     strcat(acVersion,"-VR");
 #endif
 
+    strcat(acVersion,"-");
+    strcat(acVersion,RK_GRAPHICS_VER);
     property_set("sys.ghwc.version", acVersion);
     ALOGD(RK_GRAPHICS_VER);
     return 0;
@@ -389,6 +391,7 @@ void hwc_sync(hwc_display_contents_1_t  *list)
 	if (list == NULL) {
 		return ;
 	}
+
 #ifndef RK_VR
 	forceSkip = false;
 	for (int i=0; i< (int)list->numHwLayers; i++){
@@ -8123,7 +8126,10 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
         fb_info.win_par[0].z_order = 0;
         fb_info.win_par[0].area_par[0].ion_fd = handle->share_fd;
 #if USE_HWC_FENCE
-        fb_info.win_par[0].area_par[0].acq_fence_fd = -1;//fbLayer->acquireFenceFd;
+        if (context->isRk3399)
+            fb_info.win_par[0].area_par[0].acq_fence_fd = fbLayer->acquireFenceFd;
+        else
+            fb_info.win_par[0].area_par[0].acq_fence_fd = -1;
 #else
         fb_info.win_par[0].area_par[0].acq_fence_fd = -1;
 #endif
@@ -8872,12 +8878,14 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
     hwc_display_t dpy = NULL;
     hwc_surface_t surf = NULL;
 
-    hwc_sync(list);
     if (list != NULL) {
         dpy = list->dpy;
         surf = list->sur;        
     }
 
+    if ((context && -1 != context->mLastCompType)
+			     || (context && !context->isRk3399))
+        hwc_sync(list);
 
     /* Check device handle. */
     if (dpyID == 0 && (context == NULL || 
@@ -9958,7 +9966,7 @@ hwc_device_open(
     context->mGtsStatus   = false;
     context->mTrsfrmbyrga = false;
     context->mOneWinOpt = false;
-
+    context->mLastCompType = -1;
 #if GET_VPU_INTO_FROM_HEAD
     /* initialize params of video source info*/
     for(i=0;i<MAX_VIDEO_SOURCE;i++)
@@ -10723,6 +10731,7 @@ int hotplug_get_config(int flag){
     context->mGtsStatus   = false;
     context->mTrsfrmbyrga = false;
     context->mOneWinOpt = false;
+    context->mLastCompType = -1;
 
     context->fb_fps = refreshRate / 1000.0f;
 
