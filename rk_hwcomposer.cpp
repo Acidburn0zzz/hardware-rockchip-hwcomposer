@@ -1256,6 +1256,15 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             haveStartwin = true;
         }
 
+        if (!SrcHnd) {
+            Context->zone_manager.zone_info[j].source_err = true;
+            Context->zone_manager.zone_info[j].zone_index = j;
+            Context->zone_manager.zone_info[j].layer_index = i;
+            strcpy(Context->zone_manager.zone_info[j].LayerName,layer->LayerName);
+            Context->zone_manager.zone_info[j].skipLayer = layer->flags & HWC_SKIP_LAYER;
+            continue;
+        }
+
 #if !ENABLE_LCDC_IN_NV12_TRANSFORM
         if(Context->mGtsStatus)
 #endif
@@ -1367,6 +1376,8 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         glesPixels = int(1.0 * glesPixels /Context->zone_manager.zone_info[j].overlayPixels * overlayPixels);
         Context->zone_manager.zone_info[j].glesPixels += glesPixels;
         Context->zone_manager.zone_info[j].overlayPixels += overlayPixels;
+
+        Context->zone_manager.zone_info[j].skipLayer = layer->flags & HWC_SKIP_LAYER;
 
         unsigned const char* pBuffer = (unsigned const char*)DstRect;
         unsigned int crc32 = createCrc32(0xFFFFFFFF,pBuffer,sizeof(hwc_rect_t));
@@ -1959,7 +1970,8 @@ int try_wins_dispatch_hor(void * ctx,hwc_display_contents_1_t * list)
     for(int k = 0; k < pzone_mag->zone_cnt; k++)
     {
          if(pzone_mag->zone_info[k].scale_err || pzone_mag->zone_info[k].toosmall ||
-            pzone_mag->zone_info[k].zone_err || pzone_mag->zone_info[k].transform) {
+            pzone_mag->zone_info[k].zone_err || pzone_mag->zone_info[k].transform ||
+            pzone_mag->zone_info[k].skipLayer || pzone_mag->zone_info[k].source_err) {
             ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
             return -1;
         }
@@ -2850,8 +2862,9 @@ int try_wins_dispatch_mix_up(void * ctx,hwc_display_contents_1_t * list)
     {
         if(pzone_mag->zone_info[k].scale_err || pzone_mag->zone_info[k].toosmall
             || pzone_mag->zone_info[k].zone_err || (pzone_mag->zone_info[k].transform
-                && pzone_mag->zone_info[k].format != HAL_PIXEL_FORMAT_YCrCb_NV12 && 0==k)
-                    || (pzone_mag->zone_info[k].transform && 1 == k)) {
+            && pzone_mag->zone_info[k].format != HAL_PIXEL_FORMAT_YCrCb_NV12 && 0==k)
+            || (pzone_mag->zone_info[k].transform && 1 == k)
+            || pzone_mag->zone_info[k].skipLayer || pzone_mag->zone_info[k].source_err) {
             ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
             return -1;
         }
@@ -3332,7 +3345,8 @@ TryAgain:
 
     for(int k=foundLayer;k<pzone_mag->zone_cnt;k++) {
         if(pzone_mag->zone_info[k].scale_err || pzone_mag->zone_info[k].toosmall
-            || pzone_mag->zone_info[k].zone_err || pzone_mag->zone_info[k].transform) {
+            || pzone_mag->zone_info[k].zone_err || pzone_mag->zone_info[k].transform
+            || pzone_mag->zone_info[k].skipLayer || pzone_mag->zone_info[k].source_err) {
             ALOGD_IF(log(HLLFOU),"Policy out %s,%d ",__FUNCTION__,__LINE__);
             goto TryAgain;
         }
@@ -3762,7 +3776,8 @@ int try_wins_dispatch_mix_v2 (void * ctx,hwc_display_contents_1_t * list)
 #endif
     for(int k=0;k<mFtrfl;k++) {
         if(pzone_mag->zone_info[k].scale_err || pzone_mag->zone_info[k].toosmall
-            || pzone_mag->zone_info[k].zone_err || pzone_mag->zone_info[k].transform) {
+            || pzone_mag->zone_info[k].zone_err || pzone_mag->zone_info[k].transform
+            || pzone_mag->zone_info[k].skipLayer || pzone_mag->zone_info[k].source_err) {
             ALOGD_IF(log(HLLFOU),"Policy out:%s,%d",__FUNCTION__,__LINE__);
             return -1;
         }
@@ -4186,7 +4201,8 @@ int try_wins_mix_fp_stereo (void * ctx,hwc_display_contents_1_t * list)
     }
 #endif
     if(pzone_mag->zone_info[0].scale_err || pzone_mag->zone_info[0].toosmall
-        || pzone_mag->zone_info[0].zone_err || pzone_mag->zone_info[0].transform) {
+        || pzone_mag->zone_info[0].zone_err || pzone_mag->zone_info[0].transform
+        || pzone_mag->zone_info[0].skipLayer || pzone_mag->zone_info[0].source_err) {
         return -1;
     }
 
@@ -4602,7 +4618,8 @@ int try_wins_dispatch_mix_vh (void * ctx,hwc_display_contents_1_t * list)
 
     for(int k = 0; k < 1; k++) {
         if(pzone_mag->zone_info[k].scale_err || pzone_mag->zone_info[k].toosmall
-            || pzone_mag->zone_info[k].zone_err || pzone_mag->zone_info[k].transform) {
+            || pzone_mag->zone_info[k].zone_err || pzone_mag->zone_info[k].transform
+            || pzone_mag->zone_info[k].skipLayer || pzone_mag->zone_info[k].source_err) {
             ALOGD_IF(log(HLLFOU),"%s,%d",__func__,__LINE__);
             return -1;
         }
@@ -5258,18 +5275,13 @@ check_layer(
         Context->mVideoRotate=true;
     else
         Context->mVideoRotate=false;
-    if ((Layer->flags & HWC_SKIP_LAYER)
-       // ||(hfactor != 1.0f)  // because rga scale down too slowly,so return to opengl  ,huangds modify
-       // ||(vfactor != 1.0f)  // because rga scale down too slowly,so return to opengl ,huangds modify
-        || (handle == NULL)
+    if (
 #if !(defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
-        || skip_count<10 
+        skip_count < 10 ||
 #endif
-        || (handle->type == 1 && !_contextAnchor->iommuEn)
+        (handle && handle->type == 1 && !_contextAnchor->iommuEn)
         || (Context->mGtsStatus && !strcmp(Layer->LayerName,"SurfaceView")
-        && (handle && GPU_FORMAT == HAL_PIXEL_FORMAT_RGBA_8888))
-    )
-    {
+        && (handle && GPU_FORMAT == HAL_PIXEL_FORMAT_RGBA_8888))) {
         /* We are forbidden to handle this layer. */
         if(log(HLLTHR))
         {
@@ -5285,7 +5297,7 @@ check_layer(
         {
         	skip_count++;
         }
-		ALOGD_IF(log(HLLFOU),"Policy out [%d][%s]",__LINE__,__FUNCTION__);
+        ALOGD_IF(log(HLLFOU),"Policy out [%d][%s]",__LINE__,__FUNCTION__);
         return HWC_FRAMEBUFFER;
     }
     // Force 4K transform video go into GPU
@@ -5306,7 +5318,7 @@ check_layer(
 #endif
         {
             ALOGV("In gts status,go into lcdc when rotate video");
-            if(Layer->transform && handle->format == HAL_PIXEL_FORMAT_YCrCb_NV12)
+            if(Layer->transform && handle && handle->format == HAL_PIXEL_FORMAT_YCrCb_NV12)
             {
                 Context->mTrsfrmbyrga = true;
                 LOGV("zxl:layer->transform=%d",Layer->transform );
@@ -7667,16 +7679,16 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         int stride_gr;
         int video_w=0,video_h=0;
 
-        if(GPU_FORMAT == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO){
+        if (handle && GPU_FORMAT == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO) {
             video_w = handle->video_width;
             video_h = handle->video_height;
-        }else if(GPU_FORMAT == HAL_PIXEL_FORMAT_YCrCb_NV12){
+        } else if (handle && GPU_FORMAT == HAL_PIXEL_FORMAT_YCrCb_NV12) {
             video_w = handle->width;
             video_h = handle->height;
         }
 
         //alloc video gralloc buffer in video mode
-        if(context->fd_video_bk[0] == -1 && context->mTrsfrmbyrga){
+        if (context->fd_video_bk[0] == -1 && context->mTrsfrmbyrga) {
             ALOGD_IF(log(HLLFOU),"mNV12_VIDEO_VideoMode=%d,mTrsfrmbyrga=%d,w=%d,h=%d",
                 context->mNV12_VIDEO_VideoMode,context->mTrsfrmbyrga,video_w,video_h);
             for(j=0;j<MaxVideoBackBuffers;j++){
@@ -9160,7 +9172,7 @@ static int hwc_event_control(struct hwc_composer_device_1* dev,
 
     if (context && context->isVr) {
         ALOGD_IF(isLog,"D_EN[%d,%d] vr return",dpy,enabled);
-	return 0;
+	    return 0;
     }
 
     if (dpy==1 && _contextAnchor1) {

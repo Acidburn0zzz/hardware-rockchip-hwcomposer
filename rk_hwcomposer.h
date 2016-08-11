@@ -122,8 +122,8 @@
 #define HWCE                            1           //HWC_DISPLAY_EXTERNAL
 #define HWCV                            2           //HWC_DISPLAY_VIRTUAL
 
-#define GHWC_VERSION                    "2.099"
-#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.099"
+#define GHWC_VERSION                    "2.10"
+#define HWC_VERSION                     "HWC_VERSION Author:wzq Version:2.10"
 
 #ifdef GPU_G6110
 #if G6110_SUPPORT_FBDC
@@ -323,6 +323,7 @@ typedef struct _ZoneInfo
 	int         size;
 	bool        scale_err;
 	bool        zone_err;
+	bool        source_err;
 	bool        toosmall;
 	float       vfactor;
 	float       hfactor;
@@ -341,6 +342,7 @@ typedef struct _ZoneInfo
 	int         displayStereo;
 	int         glesPixels;
 	int         overlayPixels;
+	int         skipLayer;
     unsigned int zoneCrc;
 	char        LayerName[LayerNameLength + 1];   
 #ifdef USE_HWC_FENCE
