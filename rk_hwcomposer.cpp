@@ -5354,7 +5354,6 @@ check_layer(
         LOGV("name[%d]=%s,cnt=%d,vodemod=%d",Index,Layer->LayerName,Count ,videomode);
              
         Layer->compositionType = HWC_LCDC;
-        Layer->flags           = 0;
         //ALOGD("win 0");
         break;                 
        
