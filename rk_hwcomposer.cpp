@@ -7065,7 +7065,10 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
                     }
                 }
             }
-            context->vui_fd = handle->share_fd;
+            if (handle)
+                context->vui_fd = handle->share_fd;
+            else
+		context->vui_fd = -1;
         }
     }
 #endif
