@@ -8116,8 +8116,11 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
     if(!is_need_post(list,dpyID,1))
         return -1;
 
-    if (context->isBox && !dpyID)
+    if (context->isBox && !dpyID && !context->isRk3399)
         winID = 0;
+
+    if (context->mResolutionChanged)
+	winID = 0;
 
     if (context->isVr)
 	winID = 0;
