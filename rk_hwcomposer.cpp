@@ -1730,11 +1730,25 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
                         break;
                 }
                 Context->zone_manager.zone_info[j].format = HAL_PIXEL_FORMAT_YCrCb_NV12;
+            } else {
+                int tmp = 0;
+                switch (layer->transform) {
+                    case HWC_TRANSFORM_ROT_90:
+                    case HWC_TRANSFORM_ROT_270:
+                        tmp = Context->zone_manager.zone_info[j].stride;
+                        Context->zone_manager.zone_info[j].stride = Context->zone_manager.zone_info[j].height;
+                        Context->zone_manager.zone_info[j].width = Context->zone_manager.zone_info[j].height;
+                        Context->zone_manager.zone_info[j].height = tmp;
+                        break;
+                    default:
+                        break;
+                }
             }
 			psrc_rect->left = psrc_rect->left - psrc_rect->left%2;
 			psrc_rect->top = psrc_rect->top - psrc_rect->top%2;
 			psrc_rect->right = psrc_rect->right - psrc_rect->right%2;
 			psrc_rect->bottom = psrc_rect->bottom - psrc_rect->bottom%2;
+			Context->zone_manager.zone_info[j].transform = 0;
 			Context->zone_manager.zone_info[j].pRelFenceFd = &(Context->relFenceFd[index_v]);
 			ALOGV("Zone[%d]->layer[%d],"
                         "[%d,%d,%d,%d] =>[%d,%d,%d,%d],"
