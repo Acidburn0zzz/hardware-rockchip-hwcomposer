@@ -11797,9 +11797,9 @@ int hotplug_set_config()
                 ctxp->dpyAttr[dType].xres,ctxp->dpyAttr[dType].yres,
                 ctxe->dpyAttr[dType].xres,ctxe->dpyAttr[dType].yres);
 #if DUAL_MIPI_OUTPUT
-	} else if(ctxp->dpyAttr[dType].yres) {
+	    } else if(ctxp->dpyAttr[dType].yres) {
 #else
-        } else if(ctxp->dpyAttr[dType].yres > 1080) {
+        } else if(ctxp->dpyAttr[dType].yres > 1080 && ctxp->dpyAttr[dType].xres > ctxp->dpyAttr[dType].yres) {
 #endif
 #if DUAL_MIPI_OUTPUT
             ctxp->dpyAttr[dType].xres /= 2;
