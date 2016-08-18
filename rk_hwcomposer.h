@@ -67,14 +67,14 @@
 #define VIRTUAL_RGA_BLIT                0           //1:wfd optimazition by rga
 #endif
 
+#define DUAL_MIPI_OUTPUT		0
+
 #ifdef RK3288_MID
 #define DUAL_VIEW_MODE                  0           //1:support dual view
 #define ONLY_USE_ONE_VOP                0
 #else
 #define ONLY_USE_ONE_VOP                1           //1:use one vop,rk3288 box depend on BOX_USE_TWO_VOP
 #endif
-
-
 
 //Command macro
 #define FB1_IOCTL_SET_YUV_ADDR	        0x5002
