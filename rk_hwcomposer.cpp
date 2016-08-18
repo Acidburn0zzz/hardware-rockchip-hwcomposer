@@ -8042,6 +8042,13 @@ int hwc_pre_prepare(hwc_display_contents_1_t** displays, int flag)
                 }
             }
 
+            if (needStereo & 0x8000) {
+                for (unsigned int j = 0; j <(numlayer - 1); j++) {
+                    displays[i]->hwLayers[j].alreadyStereo = 0;
+                    displays[i]->hwLayers[j].displayStereo = (needStereo & (~0x8000));
+                }
+            }
+
             if(1==i && numlayer > 1) {
                 ALOGD_IF(log(HLLTWO),"Wake up hwc control stereo");
                 pthread_mutex_lock(&contextp->mControlStereo.mlk);
