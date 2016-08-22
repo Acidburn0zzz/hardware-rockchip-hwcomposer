@@ -8996,6 +8996,11 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
         }
 #endif
 
+#if DUAL_MIPI_OUTPUT
+        if (dpyID)
+	        mipi_dual_vop_config(&fb_info);
+#endif
+
 #ifdef USE_AFBC_LAYER
         uint64_t internal_format = handle->internal_format;
         D("internal_format of fb_target_layer : 0x%llx.", internal_format);
