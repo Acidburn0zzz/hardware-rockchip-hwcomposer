@@ -11649,7 +11649,7 @@ int hotplug_get_config(int flag){
     context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_skip;
 #else
 #if defined(TARGET_BOARD_PLATFORM_RK3366) || defined(TARGET_BOARD_PLATFORM_RK3399)
-    context->fun_policy[HWC_HOR] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_HOR] = try_wins_dispatch_win0;
     context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_skip;
