@@ -1234,7 +1234,7 @@ static bool is_primary_and_resolution_changed(hwcContext * ctx)
     bool ret = false;
     if (ctx == context)
         ret = true;
-    if (context && (context->isRk3399 || context->isRk3366))
+    if (context && (context->isRk3399 || context->isRk3366 || context->isRk3368))
         ret = ret && context->mResolutionChanged;
     else
         ret = false;
@@ -1630,7 +1630,9 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
 #endif
 
         if (is_primary_and_resolution_changed(Context))
+        {
             is_stretch = true;
+        }
 
         int left_min=0 ;
         int top_min=0;
@@ -2453,7 +2455,7 @@ int try_wins_dispatch_hor(void * ctx,hwc_display_contents_1_t * list)
                 return -1;  
             }
         }
-    }  
+    }
 #ifndef RK_VR
     //third dispatch common zones win
     for (i = 0; i < 4; i++)
@@ -3146,6 +3148,15 @@ int try_wins_dispatch_mix_up(void * ctx,hwc_display_contents_1_t * list)
     int iFirstTransformLayer=-1;
     bool bTransform=false;
     mix_info gMixInfo;
+
+#if 0 //G6110_SUPPORT_FBDC
+    static int iCount=0;
+    if(iCount < 1)
+    {
+        iCount++;
+        return -1;
+    }
+#endif
 
     memset(&bpvinfo,0,sizeof(BpVopInfo));
     char const* compositionTypeName[] = {
@@ -8809,9 +8820,7 @@ bool hwc_check_cfg(hwcContext * ctx,struct rk_fb_win_cfg_data fb_info)
                 if(win_id >= 2){
                     ret = ret && (xact == xsize);
                     ret = ret && (yact == ysize);
-#ifndef USE_AFBC_LAYER
-                    ret = ret && (data_format <= 7);
-#endif
+       //             ret = ret && (data_format <= 7);
                 }
 
                 if(!ret){
@@ -9082,10 +9091,21 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
         //zxl: xact need 16bytes aligned and yact need 4bytes aligned in FBDC area.
         if(!mix_prepare && fb_info.win_par[win_no-1].area_par[area_no].fbdc_en == 1)
         {
+            if(!IS_ALIGN(fb_info.win_par[win_no-1].area_par[area_no].y_offset,4))
+            {
+                fb_info.win_par[win_no-1].area_par[area_no].y_offset=ALIGN(fb_info.win_par[win_no-1].area_par[area_no].y_offset,4);
+            }
+
             if(!IS_ALIGN(fb_info.win_par[win_no-1].area_par[area_no].yact,4))
             {
                 fb_info.win_par[win_no-1].area_par[area_no].yact=ALIGN(fb_info.win_par[win_no-1].area_par[area_no].yact,4)-4;
             }
+
+            if(!IS_ALIGN(fb_info.win_par[win_no-1].area_par[area_no].x_offset,16))
+            {
+                fb_info.win_par[win_no-1].area_par[area_no].x_offset=ALIGN(fb_info.win_par[win_no-1].area_par[area_no].x_offset,16);
+            }
+
             if(!IS_ALIGN(fb_info.win_par[win_no-1].area_par[area_no].xact,16))
             {
                 fb_info.win_par[win_no-1].area_par[area_no].xact=ALIGN(fb_info.win_par[win_no-1].area_par[area_no].yact,16)-16;
@@ -9522,6 +9542,42 @@ int hwc_prepare_virtual(hwc_composer_device_1_t * dev, hwc_display_contents_1_t 
 	return 0;
 }
 
+#if G6110_SUPPORT_FBDC
+static int set_gpu_freq_mode(int freq_mode)
+{
+    static int pvrFd = -1;
+    static int s_freq_mode = DVFS_MODE;
+    int ret= 0;
+
+    if(freq_mode == s_freq_mode)
+        return 0;
+
+    if(pvrFd == -1)
+    {
+        pvrFd = open("/dev/pvrsrvkm", O_RDWR);
+
+        if(pvrFd == -1)
+        {
+            ALOGE("open /dev/pvrsrvkm fail, errno=%d", errno);
+            return -1;
+        }
+    }
+
+    ret = write(pvrFd, &freq_mode, sizeof(freq_mode));
+    if(ret <= 0)
+    {
+        ALOGE("write %d to pvrFd(%d) failed",freq_mode,pvrFd);
+        return -1;
+    }
+    else
+    {
+        s_freq_mode = freq_mode;
+    }
+
+    return 0;
+}
+#endif
+
 static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *list, int dpyID) 
 {
     ATRACE_CALL();
@@ -9548,6 +9604,9 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     int transformcnt = 0;
     bool bIsMediaView=false;
     char gts_status[PROPERTY_VALUE_MAX];
+#if G6110_SUPPORT_FBDC
+    int iFBDCCount= 0;
+#endif
 
     /* Check layer list. */
     if (list == NULL || (list->numHwLayers  == 0)/*||!(list->flags & HWC_GEOMETRY_CHANGED)*/){
@@ -9596,12 +9655,33 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         }
 #endif
 
+#if G6110_SUPPORT_FBDC
+        if(handle && HALPixelFormatGetCompression(GPU_FORMAT) != HAL_FB_COMPRESSION_NONE)
+        {
+            iFBDCCount++;
+        }
+#endif
+
         if ( handle && !(is_hal_format_supported_by_vop(GPU_FORMAT) ) )
         {
             ALOGD_IF(log(HLLFOU),"preset gles_composition for vop unsupported hal_format 0x%x.", GPU_FORMAT);
             goto GpuComP;
         }
     }
+
+#if G6110_SUPPORT_FBDC
+    if(iFBDCCount > 1)
+    {
+//        ALOGD_IF(0,"Goto GPU: fbdc layer is %d",context->mFbdcCnt);
+        set_gpu_freq_mode(PERFORMANCE_MODE);
+        goto GpuComP;
+    }
+    else
+    {
+        set_gpu_freq_mode(DVFS_MODE);
+    }
+#endif
+
     context->mVideoMode = false;
     context->mVideoRotate = false;
     context->mIsMediaView = false;
@@ -9937,7 +10017,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         }
     }
 
-#if G6110_SUPPORT_FBDC
+#if 0
     if(check_zone(context) && dpyID == 0){
         ALOGD_IF(log(HLLFOU),"Policy out [%d][%s]",__LINE__,__FUNCTION__);
         goto GpuComP;
@@ -10415,7 +10495,31 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
             }
         }
 #endif
+#if G6110_SUPPORT_FBDC
+        //zxl: xact need 16bytes aligned and yact need 4bytes aligned in FBDC area.
+        if( fb_info.win_par[0].area_par[0].fbdc_en == 1)
+        {
+            if(!IS_ALIGN(fb_info.win_par[0].area_par[0].y_offset,4))
+            {
+                fb_info.win_par[0].area_par[0].y_offset=ALIGN(fb_info.win_par[0].area_par[0].y_offset,4);
+            }
 
+            if(!IS_ALIGN(fb_info.win_par[0].area_par[0].yact,4))
+            {
+                fb_info.win_par[0].area_par[0].yact=ALIGN(fb_info.win_par[0].area_par[0].yact,4)-4;
+            }
+
+            if(!IS_ALIGN(fb_info.win_par[0].area_par[0].x_offset,16))
+            {
+                fb_info.win_par[0].area_par[0].x_offset=ALIGN(fb_info.win_par[0].area_par[0].x_offset,16);
+            }
+
+            if(!IS_ALIGN(fb_info.win_par[0].area_par[0].xact,16))
+            {
+                fb_info.win_par[0].area_par[0].xact=ALIGN(fb_info.win_par[0].area_par[0].yact,16)-16;
+            }
+        }
+#endif
         if(ioctl(context->fbFd, RK_FBIOSET_CONFIG_DONE, &fb_info)){
             ALOGE("ID=%d:ioctl fail:%s",context!=_contextAnchor,strerror(errno));
             dump_config_info(fb_info,context,3);

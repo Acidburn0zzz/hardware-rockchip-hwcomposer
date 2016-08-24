@@ -62,7 +62,7 @@
 #define RGA_BLIT                        1           //1:support blit by rga
 
 #ifdef GPU_G6110
-#define G6110_SUPPORT_FBDC              0
+#define G6110_SUPPORT_FBDC              1
 #define VIRTUAL_RGA_BLIT                0           //1:wfd optimazition by rga
 #define SPRITEOPTIMATION                1           //1:support sprite optimation for overlay
 #else
@@ -129,6 +129,11 @@
 
 #ifdef GPU_G6110
 #if G6110_SUPPORT_FBDC
+
+#define DVFS_MODE               (0)
+#define PERFORMANCE_MODE        (1)
+#define POWER_MODE              (2)
+
 #define FBDC_BGRA_8888                  0x125 //HALPixelFormatSetCompression(HAL_PIXEL_FORMAT_BGRA_8888,HAL_FB_COMPRESSION_DIRECT_16x4)
 #define FBDC_RGBA_8888                  0x121 //HALPixelFormatSetCompression(HAL_PIXEL_FORMAT_RGBA_8888,HAL_FB_COMPRESSION_DIRECT_16x4)
 
