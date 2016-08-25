@@ -645,6 +645,7 @@ typedef struct _hwcContext
 
     /*****************dual display ***********************/
     int                            mLcdcNum;
+    bool                           mIsMipiDualOutMode;
     bool                           mIsFirstCallbackToHotplug;
     bool                           mIsBootanimExit;
     bool                           mResolutionChanged;

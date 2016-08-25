@@ -375,7 +375,9 @@ static int LayerZoneCheck( hwc_layer_1_t * Layer , int disp)
            || rects[i].right > context->fbhandle.width
            || rects[i].bottom > context->fbhandle.height)
         {
-            if(!(context == _contextAnchor1 && context->mIsDualViewMode)) {
+            if (context && context->mIsMipiDualOutMode)
+		continue;
+            if (!(context == _contextAnchor1 && context->mIsDualViewMode)) {
                 ALOGW("LayerZoneCheck out line at %d",__LINE__);
                 return -1;
             }
@@ -4994,6 +4996,278 @@ int try_wins_dispatch_mix_vh (void * ctx,hwc_display_contents_1_t * list)
     return 0;
 }
 
+int try_wins_dispatch_win0 (void * ctx,hwc_display_contents_1_t * list)
+{
+    int win_disphed_flag[2] = {0}; // win0, win2
+    int win_disphed[2] = {win0,win2_0};
+    int i,j;
+    int cntfb = 0;
+    hwcContext * Context = (hwcContext *)ctx;
+    ZoneManager zone_m;
+    initLayerCompositionType(Context,list);
+    memcpy(&zone_m,&Context->zone_manager,sizeof(ZoneManager));
+    ZoneManager* pzone_mag = &zone_m;
+    int sort = 1;
+    int cnt = 0;
+    int srot_tal[2][2] = {0,};
+    int sort_stretch[2] = {0};
+    int sort_pre;
+    int gpu_draw = 0;
+    float hfactor_max = 1.0;
+    int large_cnt = 0;
+    bool isyuv = false;
+    int bw = 0;
+    BpVopInfo  bpvinfo;
+    int tsize = 0;
+    int mix_index = 0;
+    int iFirstTransformLayer=-1;
+    bool bTransform=false;
+    mix_info gMixInfo;
+
+    memset(&bpvinfo,0,sizeof(BpVopInfo));
+    char const* compositionTypeName[] = {
+            "win0",
+            "win1",
+            "win2_0",
+            "win2_1",
+            "win2_2",
+            "win2_3",
+            "win3_0",
+            "win3_1",
+            "win3_2",
+            "win3_3",
+            };
+    hwcContext * contextAh = _contextAnchor;
+    if (Context == _contextAnchor1) {
+        mix_index = 1;
+    } else if (Context == _contextAnchor) {
+        mix_index = 0;
+    }
+
+    if (pzone_mag->zone_cnt != 1) {
+        ALOGD_IF(log(HLLTHR),"lcdc dont support 5 wins [%d]",__LINE__);
+    	return -1;
+    }
+
+    if (Context->mAlphaError) {
+        ALOGD_IF(log(HLLTHR),"lcdc dont support 5 wins [%d]",__LINE__);
+        return -1;
+    }
+
+    for (int k = 0; k < 1; k++) {
+        if(pzone_mag->zone_info[k].scale_err || pzone_mag->zone_info[k].toosmall
+            || pzone_mag->zone_info[k].zone_err || (pzone_mag->zone_info[k].transform
+                && (pzone_mag->zone_info[k].format != HAL_PIXEL_FORMAT_YCrCb_NV12))) {
+            ALOGD_IF(log(HLLTHR),"lcdc dont support 5 wins [%d]",__LINE__);
+            return -1;
+        }
+    }
+
+    if (Context->Is3D && (!pzone_mag->zone_info[0].alreadyStereo && pzone_mag->zone_info[0].displayStereo)) {
+        return -1;
+    }
+
+    pzone_mag->zone_cnt -= cntfb;
+    for(i=0;i< pzone_mag->zone_cnt;i++) {
+        ALOGD_IF(log(HLLFIV),"%s,%d:Zone[%d]->layer[%d],"
+            "[%d,%d,%d,%d] =>[%d,%d,%d,%d],"
+            "w_h_s_f[%d,%d,%d,%d],tr_rtr_bled[%d,%d,%d],acq_fence_fd=%d,"
+            "layname=%s",__FUNCTION__,__LINE__,
+            Context->zone_manager.zone_info[i].zone_index,
+            Context->zone_manager.zone_info[i].layer_index,
+            Context->zone_manager.zone_info[i].src_rect.left,
+            Context->zone_manager.zone_info[i].src_rect.top,
+            Context->zone_manager.zone_info[i].src_rect.right,
+            Context->zone_manager.zone_info[i].src_rect.bottom,
+            Context->zone_manager.zone_info[i].disp_rect.left,
+            Context->zone_manager.zone_info[i].disp_rect.top,
+            Context->zone_manager.zone_info[i].disp_rect.right,
+            Context->zone_manager.zone_info[i].disp_rect.bottom,
+            Context->zone_manager.zone_info[i].width,
+            Context->zone_manager.zone_info[i].height,
+            Context->zone_manager.zone_info[i].stride,
+            Context->zone_manager.zone_info[i].format,
+            Context->zone_manager.zone_info[i].transform,
+            Context->zone_manager.zone_info[i].realtransform,
+            Context->zone_manager.zone_info[i].blend,
+            Context->zone_manager.zone_info[i].acq_fence_fd,
+            Context->zone_manager.zone_info[i].LayerName);
+    }
+    pzone_mag->zone_info[0].sort = 1;
+    sort = 1;
+
+    if (sort > 3) {
+        ALOGD_IF(log(HLLTHR),"lcdc dont support 5 wins [%d]",__LINE__);
+        return -1;
+    }
+
+    for(i = 0; i < pzone_mag->zone_cnt; i++) {
+        int factor =1;
+        ALOGV("sort[%d].type=%d",i,pzone_mag->zone_info[i].sort);
+        if( pzone_mag->zone_info[i].sort == 1){
+            srot_tal[0][0]++;
+            if(pzone_mag->zone_info[i].is_stretch)
+                sort_stretch[0] = 1;
+        }    
+        else if(pzone_mag->zone_info[i].sort == 2){
+            srot_tal[1][0]++;
+            if(pzone_mag->zone_info[i].is_stretch)
+                sort_stretch[1] = 1;
+        }    
+
+        if(pzone_mag->zone_info[i].hfactor > hfactor_max)
+            hfactor_max = pzone_mag->zone_info[i].hfactor;
+
+        if(pzone_mag->zone_info[i].is_large)
+            large_cnt ++;
+
+        if(pzone_mag->zone_info[i].format== HAL_PIXEL_FORMAT_YCrCb_NV12)
+            isyuv = true;
+
+        if(Context->zone_manager.zone_info[i].hfactor > 1.0)
+            factor = 2;
+        else
+            factor = 1;        
+        tsize += (Context->zone_manager.zone_info[i].size *factor);
+    }
+
+    for (i = 0,j = 0; i < 1; i++) {
+        {
+            srot_tal[i][1] = win_disphed[0];  // win 0 and win 1 suporot stretch
+            win_disphed_flag[i] = 1; // win0 ,win1 is dispatch flag
+            ALOGV("stretch zones srot_tal[%d][1]=%d",i,srot_tal[i][1]);
+            j++;
+            if(j > 1) {
+                ALOGD_IF(log(HLLTWO),"lcdc only has win0 and win1 supprot stretch");
+                return -1;  
+            }
+        }
+    }
+
+    // third dispatch common zones win
+    for (i = 0; i < 1; i++) {
+        if (srot_tal[i][1] == 0)  // had not dispatched
+        {
+            ALOGD_IF(log(HLLTHR),"has layer can not beed dispatched [%d]",__LINE__);
+            return -1;  
+        }
+    }    
+
+    if (hfactor_max >= 1.4)
+        bw += (j + 1);
+
+    if (isyuv)
+        bw +=5;
+
+    for(i=0;i<pzone_mag->zone_cnt;i++) {        
+         switch(pzone_mag->zone_info[i].sort) {
+            case 1:
+                pzone_mag->zone_info[i].dispatched = srot_tal[0][1]++;
+                break;
+            case 2:
+                pzone_mag->zone_info[i].dispatched = srot_tal[1][1]++;            
+                break;
+            default:
+                ALOGE("try_wins_dispatch_mix_vh sort err!");
+                return -1;
+        }
+        ALOGV("zone[%d].dispatched[%d]=%s,sort=%d", \
+        i,pzone_mag->zone_info[i].dispatched,
+        compositionTypeName[pzone_mag->zone_info[i].dispatched -1],
+        pzone_mag->zone_info[i].sort);
+    }
+
+#if 0//USE_QUEUE_DDRFREQ
+    if(Context->ddrFd > 0)
+    {
+        for(i=0;i<pzone_mag->zone_cnt;i++)
+        {
+            int area_no = 0;
+            int win_id = 0;
+            ALOGD_IF(log(HLLFIV),"Zone[%d]->layer[%d],dispatched=%d,"
+            "[%d,%d,%d,%d] =>[%d,%d,%d,%d],"
+            "w_h_s_f[%d,%d,%d,%d],tr_rtr_bled[%d,%d,%d],"
+            "layer_fd[%d],addr=%x,acq_fence_fd=%d"
+            "layname=%s",    
+            pzone_mag->zone_info[i].zone_index,
+            pzone_mag->zone_info[i].layer_index,
+            pzone_mag->zone_info[i].dispatched,
+            pzone_mag->zone_info[i].src_rect.left,
+            pzone_mag->zone_info[i].src_rect.top,
+            pzone_mag->zone_info[i].src_rect.right,
+            pzone_mag->zone_info[i].src_rect.bottom,
+            pzone_mag->zone_info[i].disp_rect.left,
+            pzone_mag->zone_info[i].disp_rect.top,
+            pzone_mag->zone_info[i].disp_rect.right,
+            pzone_mag->zone_info[i].disp_rect.bottom,
+            pzone_mag->zone_info[i].width,
+            pzone_mag->zone_info[i].height,
+            pzone_mag->zone_info[i].stride,
+            pzone_mag->zone_info[i].format,
+            pzone_mag->zone_info[i].transform,
+            pzone_mag->zone_info[i].realtransform,
+            pzone_mag->zone_info[i].blend,
+            pzone_mag->zone_info[i].layer_fd,
+            pzone_mag->zone_info[i].addr,
+            pzone_mag->zone_info[i].acq_fence_fd,
+            pzone_mag->zone_info[i].LayerName);
+            switch(pzone_mag->zone_info[i].dispatched) {
+                case win0:
+                    bpvinfo.vopinfo[0].state = 1;
+                    bpvinfo.vopinfo[0].zone_num ++;
+                   break;
+                case win1:
+                    bpvinfo.vopinfo[1].state = 1;
+                    bpvinfo.vopinfo[1].zone_num ++;
+                    break;
+                case win2_0:
+                    bpvinfo.vopinfo[2].state = 1;
+                    bpvinfo.vopinfo[2].zone_num ++;
+                    break;
+                case win2_1:
+                    bpvinfo.vopinfo[2].zone_num ++;
+                    break;
+                case win2_2:
+                    bpvinfo.vopinfo[2].zone_num ++;
+                    break;
+                case win2_3:
+                    bpvinfo.vopinfo[2].zone_num ++;
+                    break;
+                default:
+                    ALOGE("hwc_dispatch_mix  err!");
+                    return -1;
+             }    
+        }  
+        bpvinfo.vopinfo[3].state = 1;
+        bpvinfo.vopinfo[3].zone_num ++;
+        bpvinfo.bp_size = Context->zone_manager.bp_size;
+        tsize += Context->fbhandle.width * Context->fbhandle.height*4;
+        if(tsize)
+            tsize = tsize / (1024 *1024) * 60 ;// MB
+        bpvinfo.bp_vop_size = tsize ;
+        for (i = 0; i < 4; i++) {
+            ALOGD_IF(log(HLLFIV),"RK_QUEDDR_FREQ mixinfo win[%d] bo_size=%dMB,bp_vop_size=%dMB,state=%d,num=%d",
+                i,bpvinfo.bp_size,bpvinfo.bp_vop_size,bpvinfo.vopinfo[i].state,bpvinfo.vopinfo[i].zone_num);
+        }
+        if (ioctl(Context->ddrFd, RK_QUEDDR_FREQ, &bpvinfo)) {
+            if (log(HLLTHR)) {
+                for (i = 0; i < 4; i++) {
+                    ALOGD("RK_QUEDDR_FREQ mixinfo win[%d] bo_size=%dMB,bp_vop_size=%dMB,state=%d,num=%d",
+                        i,bpvinfo.bp_size,bpvinfo.bp_vop_size,bpvinfo.vopinfo[i].state,bpvinfo.vopinfo[i].zone_num);
+                }
+            }
+            return -1;
+        }
+    }
+#endif   
+    //Mark the composer mode to HWC_MIX_V2
+    memcpy(&Context->zone_manager,&zone_m,sizeof(ZoneManager));
+
+    Context->zone_manager.mCmpType = HWC_HOR;
+    Context->zone_manager.composter_mode = HWC_LCDC;
+    return 0;
+}
+
 int try_wins_dispatch_win02 (void * ctx,hwc_display_contents_1_t * list)
 {
     int win_disphed_flag[2] = {0,}; // win0, win2
@@ -5042,10 +5316,6 @@ int try_wins_dispatch_win02 (void * ctx,hwc_display_contents_1_t * list)
         mix_index = 1;
     }else if(Context == _contextAnchor){
         mix_index = 0;
-    }
-    if(list->numHwLayers - 1 < 2)
-    {
-    	return -1;
     }
 
     if(Context->mAlphaError){
@@ -9614,7 +9884,7 @@ static int hwc_static_screen_opt_set()
     struct itimerval tv = {{0,0},{0,0}};
     if (-1 != context->mLastCompType) {
         int msec = 0;
-        char value[100];
+        char value[PROPERTY_VALUE_MAX];
         property_get("sys.vwb.time",value,"2500");
         msec = atoi(value);
         if (msec > 5000)
@@ -11036,7 +11306,7 @@ hwc_device_open(
 
     /* Increment reference count. */
     context->reference++;
-#if DUAL_MIPI_OUTPUT
+#if 0//DUAL_MIPI_OUTPUT
     context->fun_policy[HWC_HOR] = try_wins_dispatch_win02;
     context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_skip;
@@ -11044,7 +11314,9 @@ hwc_device_open(
     context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_win02;
+    context->mIsMipiDualOutMode = true;
 #else
+    context->mIsMipiDualOutMode = false;
     context->fun_policy[HWC_HOR] = try_wins_dispatch_hor;
     context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_mix_v2;
     context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_mix_up;
@@ -11245,7 +11517,7 @@ OnError:
 int  getHdmiMode()
 {
 #if 0
-    char pro_value[16];
+    char pro_value[PROPERTY_VALUE_MAX];
     property_get("sys.hdmi.mode",pro_value,0);
     int mode = atoi(pro_value);
     return mode;
@@ -11645,14 +11917,16 @@ int hotplug_get_config(int flag){
     context->mSrBI.mCurIndex = 0;
 #endif
 #if DUAL_MIPI_OUTPUT
-    context->fun_policy[HWC_HOR] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_HOR] = try_wins_dispatch_win0;
     context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
     context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_skip;
+    context->mIsMipiDualOutMode = true;
 #else
+    context->mIsMipiDualOutMode = false;
 #if defined(TARGET_BOARD_PLATFORM_RK3366) || defined(TARGET_BOARD_PLATFORM_RK3399)
     context->fun_policy[HWC_HOR] = try_wins_dispatch_win0;
     context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_skip;
