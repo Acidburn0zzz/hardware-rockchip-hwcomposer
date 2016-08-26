@@ -1284,8 +1284,8 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             }
         }
 
-	if (SrcHnd && SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_10)
-	    Context->mHasYuvTenBit = true;
+	    if (SrcHnd && SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_10)
+	        Context->mHasYuvTenBit = true;
 
         if(j>=MaxZones){
             ALOGD("Overflow [%d] >max=%d",m+j,MaxZones);
@@ -2250,14 +2250,24 @@ int try_wins_dispatch_hor(void * ctx,hwc_display_contents_1_t * list)
 
     for(i=0;i<pzone_mag->zone_cnt;i++){
         int disptched = pzone_mag->zone_info[i].dispatched;
-        int sct_width = pzone_mag->zone_info[i].width;
-        int sct_height = pzone_mag->zone_info[i].height;
+        int sct_width = pzone_mag->zone_info[i].src_rect.right 
+                                            - pzone_mag->zone_info[i].src_rect.left;
+        int sct_height = pzone_mag->zone_info[i].src_rect.bottom 
+                                            - pzone_mag->zone_info[i].src_rect.top;
+        int dst_width = pzone_mag->zone_info[i].disp_rect.right
+                                            - pzone_mag->zone_info[i].disp_rect.left;
+        int dst_height = pzone_mag->zone_info[i].disp_rect.bottom
+                                            - pzone_mag->zone_info[i].disp_rect.top;
         /*win2 win3 not support YUV*/
         if(disptched > win1 && is_yuv(pzone_mag->zone_info[i].format))
             return -1;
         /*scal not support whoes source bigger than 2560 to dst 4k*/
         if(disptched <= win1 &&(sct_width > 2160 || sct_height > 2160) &&
             !is_yuv(pzone_mag->zone_info[i].format) && contextAh->mHdmiSI.NeedReDst)
+            return -1;
+        if(disptched <= win1 && (sct_width > 2560 || dst_width > 2560) &&
+                                             !is_yuv(pzone_mag->zone_info[i].format)
+                        && (sct_height != dst_height || Context->mResolutionChanged))
             return -1;
     }
 
@@ -2682,11 +2692,21 @@ int try_wins_dispatch_mix_cross(void * ctx,hwc_display_contents_1_t * list)
 
     for(i=0;i<pzone_mag->zone_cnt;i++){
         int disptched = pzone_mag->zone_info[i].dispatched;
-        int sct_width = pzone_mag->zone_info[i].width;
-        int sct_height = pzone_mag->zone_info[i].height;
+        int sct_width = pzone_mag->zone_info[i].src_rect.right 
+                                            - pzone_mag->zone_info[i].src_rect.left;
+        int sct_height = pzone_mag->zone_info[i].src_rect.bottom 
+                                            - pzone_mag->zone_info[i].src_rect.top;
+        int dst_width = pzone_mag->zone_info[i].disp_rect.right
+                                            - pzone_mag->zone_info[i].disp_rect.left;
+        int dst_height = pzone_mag->zone_info[i].disp_rect.bottom
+                                            - pzone_mag->zone_info[i].disp_rect.top;
         /*scal not support whoes source bigger than 2560 to dst 4k*/
         if(disptched <= win1 &&(sct_width > 2160 || sct_height > 2160) &&
             !is_yuv(pzone_mag->zone_info[i].format) && contextAh->mHdmiSI.NeedReDst)
+            return -1;
+        if(disptched <= win1 && (sct_width > 2560 || dst_width > 2560) &&
+                                             !is_yuv(pzone_mag->zone_info[i].format)
+                        && (sct_height != dst_height || Context->mResolutionChanged))
             return -1;
     }
 
@@ -3138,11 +3158,22 @@ int try_wins_dispatch_mix_up(void * ctx,hwc_display_contents_1_t * list)
     
     for(i=0;i<pzone_mag->zone_cnt;i++){
         int disptched = pzone_mag->zone_info[i].dispatched;
-        int sct_width = pzone_mag->zone_info[i].width;
-        int sct_height = pzone_mag->zone_info[i].height;
+        int sct_width = pzone_mag->zone_info[i].src_rect.right
+                                            - pzone_mag->zone_info[i].src_rect.left;
+        int sct_height = pzone_mag->zone_info[i].src_rect.bottom
+                                            - pzone_mag->zone_info[i].src_rect.top;
+        int dst_width = pzone_mag->zone_info[i].disp_rect.right
+                                            - pzone_mag->zone_info[i].disp_rect.left;
+        int dst_height = pzone_mag->zone_info[i].disp_rect.bottom
+                                            - pzone_mag->zone_info[i].disp_rect.top;
+
         /*scal not support whoes source bigger than 2560 to dst 4k*/
         if(disptched <= win1 &&(sct_width > 2160 || sct_height > 2160) &&
             !is_yuv(pzone_mag->zone_info[i].format) && contextAh->mHdmiSI.NeedReDst)
+            return -1;
+        if(disptched <= win1 && (sct_width > 2560 || dst_width > 2560) &&
+                                             !is_yuv(pzone_mag->zone_info[i].format)
+                        && (sct_height != dst_height || Context->mResolutionChanged))
             return -1;
     }
         
@@ -4054,14 +4085,24 @@ int try_wins_dispatch_mix_v2 (void * ctx,hwc_display_contents_1_t * list)
 
     for(i=0;i<pzone_mag->zone_cnt;i++){
         int disptched = pzone_mag->zone_info[i].dispatched;
-        int sct_width = pzone_mag->zone_info[i].width;
-        int sct_height = pzone_mag->zone_info[i].height;
+        int sct_width = pzone_mag->zone_info[i].src_rect.right 
+                                            - pzone_mag->zone_info[i].src_rect.left;
+        int sct_height = pzone_mag->zone_info[i].src_rect.bottom 
+                                            - pzone_mag->zone_info[i].src_rect.top;
+        int dst_width = pzone_mag->zone_info[i].disp_rect.right
+                                            - pzone_mag->zone_info[i].disp_rect.left;
+        int dst_height = pzone_mag->zone_info[i].disp_rect.bottom
+                                            - pzone_mag->zone_info[i].disp_rect.top;
         /*win2 win3 not support YUV*/
         if(disptched > win1 && is_yuv(pzone_mag->zone_info[i].format))
             return -1;
         /*scal not support whoes source bigger than 2560 to dst 4k*/
         if(disptched <= win1 &&(sct_width > 2160 || sct_height > 2160) &&
             !is_yuv(pzone_mag->zone_info[i].format) && contextAh->mHdmiSI.NeedReDst)
+            return -1;
+        if(disptched <= win1 && (sct_width > 2560 || dst_width > 2560) &&
+                                             !is_yuv(pzone_mag->zone_info[i].format)
+                        && (sct_height != dst_height || Context->mResolutionChanged))
             return -1;
     }
 
@@ -4478,11 +4519,24 @@ int try_wins_mix_fp_stereo (void * ctx,hwc_display_contents_1_t * list)
 
     for(i=0;i<pzone_mag->zone_cnt;i++){
         int disptched = pzone_mag->zone_info[i].dispatched;
-        int sct_width = pzone_mag->zone_info[i].width;
-        int sct_height = pzone_mag->zone_info[i].height;
+        int sct_width = pzone_mag->zone_info[i].src_rect.right 
+                                            - pzone_mag->zone_info[i].src_rect.left;
+        int sct_height = pzone_mag->zone_info[i].src_rect.bottom 
+                                            - pzone_mag->zone_info[i].src_rect.top;
+        int dst_width = pzone_mag->zone_info[i].disp_rect.right
+                                            - pzone_mag->zone_info[i].disp_rect.left;
+        int dst_height = pzone_mag->zone_info[i].disp_rect.bottom
+                                            - pzone_mag->zone_info[i].disp_rect.top;
+        /*win2 win3 not support YUV*/
+        if(disptched > win1 && is_yuv(pzone_mag->zone_info[i].format))
+            return -1;
         /*scal not support whoes source bigger than 2560 to dst 4k*/
         if(disptched <= win1 &&(sct_width > 2160 || sct_height > 2160) &&
             !is_yuv(pzone_mag->zone_info[i].format) && contextAh->mHdmiSI.NeedReDst)
+            return -1;
+        if(disptched <= win1 && (sct_width > 2560 || dst_width > 2560) &&
+                                             !is_yuv(pzone_mag->zone_info[i].format)
+                        && (sct_height != dst_height || Context->mResolutionChanged))
             return -1;
     }
 
@@ -4900,14 +4954,25 @@ int try_wins_dispatch_mix_vh (void * ctx,hwc_display_contents_1_t * list)
 
     for(i=0;i<pzone_mag->zone_cnt;i++){
         int disptched = pzone_mag->zone_info[i].dispatched;
-        int sct_width = pzone_mag->zone_info[i].width;
-        int sct_height = pzone_mag->zone_info[i].height;
+        int sct_width = pzone_mag->zone_info[i].src_rect.right 
+                                            - pzone_mag->zone_info[i].src_rect.left;
+        int sct_height = pzone_mag->zone_info[i].src_rect.bottom 
+                                            - pzone_mag->zone_info[i].src_rect.top;
+        int dst_width = pzone_mag->zone_info[i].disp_rect.right
+                                            - pzone_mag->zone_info[i].disp_rect.left;
+        int dst_height = pzone_mag->zone_info[i].disp_rect.bottom
+                                            - pzone_mag->zone_info[i].disp_rect.top;
+        /*win2 win3 not support YUV*/
+        if(disptched > win1 && is_yuv(pzone_mag->zone_info[i].format))
+            return -1;
         /*scal not support whoes source bigger than 2560 to dst 4k*/
         if(disptched <= win1 &&(sct_width > 2160 || sct_height > 2160) &&
-            !is_yuv(pzone_mag->zone_info[i].format) && contextAh->mHdmiSI.NeedReDst) {
-            ALOGD_IF(log(HLLFOU),"%s,%d",__func__,__LINE__);
+            !is_yuv(pzone_mag->zone_info[i].format) && contextAh->mHdmiSI.NeedReDst)
             return -1;
-        }
+        if(disptched <= win1 && (sct_width > 2560 || dst_width > 2560) &&
+                                             !is_yuv(pzone_mag->zone_info[i].format)
+                        && (sct_height != dst_height || Context->mResolutionChanged))
+            return -1;
     }
 
 #if USE_QUEUE_DDRFREQ
@@ -5904,11 +5969,24 @@ int try_wins_dispatch_mix_win02 (void * ctx,hwc_display_contents_1_t * list)
     
     for(i=0;i<pzone_mag->zone_cnt;i++){
         int disptched = pzone_mag->zone_info[i].dispatched;
-        int sct_width = pzone_mag->zone_info[i].width;
-        int sct_height = pzone_mag->zone_info[i].height;
+        int sct_width = pzone_mag->zone_info[i].src_rect.right 
+                                            - pzone_mag->zone_info[i].src_rect.left;
+        int sct_height = pzone_mag->zone_info[i].src_rect.bottom 
+                                            - pzone_mag->zone_info[i].src_rect.top;
+        int dst_width = pzone_mag->zone_info[i].disp_rect.right
+                                            - pzone_mag->zone_info[i].disp_rect.left;
+        int dst_height = pzone_mag->zone_info[i].disp_rect.bottom
+                                            - pzone_mag->zone_info[i].disp_rect.top;
+        /*win2 win3 not support YUV*/
+        if(disptched > win1 && is_yuv(pzone_mag->zone_info[i].format))
+            return -1;
         /*scal not support whoes source bigger than 2560 to dst 4k*/
         if(disptched <= win1 &&(sct_width > 2160 || sct_height > 2160) &&
             !is_yuv(pzone_mag->zone_info[i].format) && contextAh->mHdmiSI.NeedReDst)
+            return -1;
+        if(disptched <= win1 && (sct_width > 2560 || dst_width > 2560) &&
+                                             !is_yuv(pzone_mag->zone_info[i].format)
+                        && (sct_height != dst_height || Context->mResolutionChanged))
             return -1;
     }
         
