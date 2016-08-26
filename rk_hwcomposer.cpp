@@ -658,9 +658,14 @@ int rgaRotateScale(hwcContext * ctx,int tranform,int fd_dst, int Dstfmt,bool isT
         sync_wait(context->relFenceFd[index_v],-1);
         close(context->relFenceFd[index_v]);
         context->relFenceFd[index_v] = -1;
+        ALOGD_IF(log(HLLSIX),"Goout dst sync wait %d",context->relFenceFd[index_v]);
     }
     if(ioctl(rga_fd, RGA_BLIT_SYNC, &Rga_Request)) {
         LOGE(" %s(%d) RGA_BLIT fail",__FUNCTION__, __LINE__);
+        ALOGE("src addr=[%x],w-h[%d,%d],act[%d,%d][f=%d]",
+            handle->share_fd, SrcVirW, SrcVirH,SrcActW,SrcActH,hwChangeRgaFormat(handle->format));
+        ALOGE("dst fd=[%x],Index=%d,w-h[%d,%d],act[%d,%d][%d,%d][f=%d],rot=%d,rot_mod=%d",
+            fd_dst, index_v, DstVirW, DstVirH,DstActW,DstActH,xoffset,yoffset,Dstfmt,Rotation,RotateMode);
     }
 #if 0
     FILE * pfile = NULL;
@@ -859,10 +864,12 @@ int rga_video_copybit(struct private_handle_t *handle,int tranform,int w_valid,i
     }
 
     if(context->relFenceFd[index_v] > 0) {
+        ATRACE_CALL();
         ALOGD_IF(log(HLLSIX),"Goto dst sync wait %d",context->relFenceFd[index_v]);
         sync_wait(context->relFenceFd[index_v],-1);
         close(context->relFenceFd[index_v]);
         context->relFenceFd[index_v] = -1;
+        ALOGD_IF(log(HLLSIX),"Goout dst sync wait %d",context->relFenceFd[index_v]);
     }
     if(ioctl(rga_fd, RGA_BLIT_SYNC, &Rga_Request)) {
         LOGE(" %s(%d) RGA_BLIT fail",__FUNCTION__, __LINE__);
@@ -1503,6 +1510,13 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             Context->mTrsfrmbyrga |= useRgaScale;
         }
 
+	if (SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12 && !trsfrmbyrga) {
+            if (vfactor < 4 && vfactor > 2 && hfactor < 4 && hfactor > 2)
+                useRgaScale = true;
+            trsfrmbyrga = useRgaScale;
+            Context->mTrsfrmbyrga |= useRgaScale;
+        }
+
         //firsttfrmbyrga:every display only support one layer trfmbyrga for too slow
         if((SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO
                                                 || (trsfrmbyrga)) && firsttfrmbyrga){
@@ -1705,7 +1719,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
                                              Context->zone_manager.zone_info[j].disp_rect.left;
                         psrc_rect->bottom = Context->zone_manager.zone_info[j].disp_rect.bottom -
                                                 Context->zone_manager.zone_info[j].disp_rect.top;
-                        Context->zone_manager.zone_info[j].stride = rkmALIGN(psrc_rect->bottom,32);
+                        Context->zone_manager.zone_info[j].stride = psrc_rect->bottom;
                         Context->zone_manager.zone_info[j].width = psrc_rect->bottom - psrc_rect->bottom % 2;
                         Context->zone_manager.zone_info[j].height = rkmALIGN(psrc_rect->right,32);
                         break;
