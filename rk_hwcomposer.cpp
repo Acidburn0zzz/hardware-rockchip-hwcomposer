@@ -43,6 +43,8 @@
 
 /*---------------------------------------------------------------------------*/
 
+#include <sys/mman.h>
+
 //primary,hotplug and virtual device context
 static hwcContext * _contextAnchor = NULL;
 static hwcContext * _contextAnchor1 = NULL;
@@ -501,7 +503,9 @@ int rgaRotateScale(hwcContext * ctx,int tranform,int fd_dst, int Dstfmt,bool isT
     int DstVirW,DstVirH,DstActW,DstActH;
     int xoffset = 0;
     int yoffset = 0;
-    int   rga_fd = _contextAnchor->engine_fd;
+    int rga_fd = _contextAnchor->engine_fd;
+    void *cpu_ptr = MAP_FAILED;
+    void *baseAddr = NULL;
     hwcContext * context = ctx;
     struct private_handle_t *handle = context->mRgaTBI.hdl;
     hwc_rect_t * psrc_rect = &context->mRgaTBI.zone_info.src_rect;
@@ -632,6 +636,20 @@ int rgaRotateScale(hwcContext * ctx,int tranform,int fd_dst, int Dstfmt,bool isT
     ALOGD_IF(log(HLLSIX),"dst fd=[%x],Index=%d,w-h[%d,%d],act[%d,%d][%d,%d][f=%d],rot=%d,rot_mod=%d",
         fd_dst, index_v, DstVirW, DstVirH,DstActW,DstActH,xoffset,yoffset,Dstfmt,Rotation,RotateMode);
 
+    int fd_dup = -1;
+    if (handle->share_fd > -1) {
+	    fd_dup = dup(handle->share_fd);
+	    if (fd_dup == -1)
+		    ALOGE("dup fd fail %s",strerror(errno));
+        else
+            cpu_ptr = mmap(NULL, handle->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd_dup, 0);
+    }
+
+    if (cpu_ptr != MAP_FAILED)
+        baseAddr = (void *)cpu_ptr;
+    else
+        baseAddr = (void *)GPU_BASE;
+
     if(handle->type == 1)
         RGA_set_src_vir_info(&Rga_Request, 0, (unsigned long)(GPU_BASE), 0,SrcVirW, SrcVirH, hwChangeRgaFormat(handle->format), 0);
     else
@@ -660,12 +678,19 @@ int rgaRotateScale(hwcContext * ctx,int tranform,int fd_dst, int Dstfmt,bool isT
         context->relFenceFd[index_v] = -1;
         ALOGD_IF(log(HLLSIX),"Goout dst sync wait %d",context->relFenceFd[index_v]);
     }
+
     if(ioctl(rga_fd, RGA_BLIT_SYNC, &Rga_Request)) {
         LOGE(" %s(%d) RGA_BLIT fail",__FUNCTION__, __LINE__);
         ALOGE("src addr=[%x],w-h[%d,%d],act[%d,%d][f=%d]",
             handle->share_fd, SrcVirW, SrcVirH,SrcActW,SrcActH,hwChangeRgaFormat(handle->format));
         ALOGE("dst fd=[%x],Index=%d,w-h[%d,%d],act[%d,%d][%d,%d][f=%d],rot=%d,rot_mod=%d",
             fd_dst, index_v, DstVirW, DstVirH,DstActW,DstActH,xoffset,yoffset,Dstfmt,Rotation,RotateMode);
+    }
+
+    if (fd_dup > -1) {
+	    close(fd_dup);
+	    if (cpu_ptr != MAP_FAILED)
+	        munmap(cpu_ptr, handle->size);
     }
 #if 0
     FILE * pfile = NULL;
@@ -697,12 +722,15 @@ int rga_video_copybit(struct private_handle_t *handle,int tranform,int w_valid,i
     struct rga_req  Rga_Request;
     RECT clip;
     unsigned char RotateMode = 0;
+    void *cpu_ptr = MAP_FAILED;
     int Rotation = 0;
     int SrcVirW,SrcVirH,SrcActW,SrcActH;
     int DstVirW,DstVirH,DstActW,DstActH;
     int xoffset = 0;
     int yoffset = 0;
-    int   rga_fd = _contextAnchor->engine_fd;
+    int rga_fd = _contextAnchor->engine_fd;
+    void *baseAddr = NULL;
+
     hwcContext * context = _contextAnchor;
 
     if(dpyID == HWCE){
@@ -828,15 +856,30 @@ int rga_video_copybit(struct private_handle_t *handle,int tranform,int w_valid,i
         specialwin ? handle->share_fd:handle->video_addr, SrcVirW, SrcVirH,SrcActW,SrcActH,specialwin ?  hwChangeRgaFormat(handle->format):RK_FORMAT_YCbCr_420_SP);
     ALOGD_IF(log(HLLSIX),"dst fd=[%x],Index=%d,w-h[%d,%d],act[%d,%d][f=%d],rot=%d,rot_mod=%d",
         fd_dst, index_v, DstVirW, DstVirH,DstActW,DstActH,Dstfmt,Rotation,RotateMode);
+
+    int fd_dup = -1;
+    if (handle->share_fd > -1) {
+	    fd_dup = dup(handle->share_fd);
+	    if (fd_dup == -1)
+		    ALOGE("dup fd fail %s",strerror(errno));
+        else
+            cpu_ptr = mmap(NULL, handle->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd_dup, 0);
+    }
+
+    if (cpu_ptr != MAP_FAILED)
+        baseAddr = (void *)cpu_ptr;
+    else
+        baseAddr = (void *)GPU_BASE;
+
     if(specialwin)
     {
         if(handle->type == 1)
-            RGA_set_src_vir_info(&Rga_Request, 0, (unsigned long)(GPU_BASE), 0,SrcVirW, SrcVirH, hwChangeRgaFormat(handle->format), 0);
+            RGA_set_src_vir_info(&Rga_Request, 0, (unsigned long)(baseAddr), (unsigned long)(baseAddr) + SrcVirW * SrcVirH,SrcVirW, SrcVirH, hwChangeRgaFormat(handle->format), 0);
         else
             RGA_set_src_vir_info(&Rga_Request, handle->share_fd, 0, 0,SrcVirW, SrcVirH, hwChangeRgaFormat(handle->format), 0);
     }
     else
-        RGA_set_src_vir_info(&Rga_Request, 0, handle->video_addr, 0,SrcVirW, SrcVirH, RK_FORMAT_YCbCr_420_SP, 0);
+        RGA_set_src_vir_info(&Rga_Request, 0, handle->video_addr, handle->video_addr + SrcVirW * SrcVirH,SrcVirW, SrcVirH, RK_FORMAT_YCbCr_420_SP, 0);
     RGA_set_dst_vir_info(&Rga_Request, fd_dst, 0, 0,DstVirW,DstVirH,&clip, Dstfmt, 0);
     RGA_set_bitblt_mode(&Rga_Request, 0, RotateMode,Rotation,0,0,0);
     RGA_set_src_act_info(&Rga_Request,SrcActW,SrcActH, 0,0);
@@ -850,13 +893,13 @@ int rga_video_copybit(struct private_handle_t *handle,int tranform,int w_valid,i
     if(handle->type == 1) {
         if( !specialwin) {
 #if defined(__arm64__) || defined(__aarch64__)
-            RGA_set_dst_vir_info(&Rga_Request, 0,(unsigned long)(GPU_BASE), 0,DstVirW,DstVirH,&clip, Dstfmt, 0);
+            RGA_set_dst_vir_info(&Rga_Request, 0,(unsigned long)(baseAddr), (unsigned long)(baseAddr) + DstVirW * DstVirH,DstVirW,DstVirH,&clip, Dstfmt, 0);
 #else
-            RGA_set_dst_vir_info(&Rga_Request, 0,(unsigned int)(GPU_BASE), 0,DstVirW,DstVirH,&clip, Dstfmt, 0);
+            RGA_set_dst_vir_info(&Rga_Request, 0,(unsigned int)(baseAddr), (unsigned int)(baseAddr) + DstVirW * DstVirH,DstVirW,DstVirH,&clip, Dstfmt, 0);
 #endif
-            ALOGW("Debugmem mmu_en fd=%d in vmalloc ,base=%p,[%dX%d],fmt=%d,src_addr=%x", fd_dst,GPU_BASE,DstVirW,DstVirH,handle->video_addr);
+            ALOGW("Debugmem mmu_en fd=%d in vmalloc ,base=%p,[%dX%d],fmt=%d,src_addr=%x", fd_dst,baseAddr,DstVirW,DstVirH,handle->video_addr);
         } else {
-            RGA_set_dst_vir_info(&Rga_Request, 0,context->base_video_bk[index_v], 0,DstVirW,DstVirH,&clip, Dstfmt, 0);
+            RGA_set_dst_vir_info(&Rga_Request, 0,context->base_video_bk[index_v], context->base_video_bk[index_v] + DstVirW * DstVirH,DstVirW,DstVirH,&clip, Dstfmt, 0);
             ALOGD_IF(log(HLLSEV),"rga_video_copybit fd_dst=%d,base=%x,index_v=%d",fd_dst,context->base_video_bk[index_v],index_v);
         }
         RGA_set_mmu_info(&Rga_Request, 1, 0, 0, 0, 0, 2);
@@ -871,12 +914,19 @@ int rga_video_copybit(struct private_handle_t *handle,int tranform,int w_valid,i
         context->relFenceFd[index_v] = -1;
         ALOGD_IF(log(HLLSIX),"Goout dst sync wait %d",context->relFenceFd[index_v]);
     }
+
     if(ioctl(rga_fd, RGA_BLIT_SYNC, &Rga_Request)) {
         LOGE(" %s(%d) RGA_BLIT fail",__FUNCTION__, __LINE__);
         ALOGE("err src addr=[%x],w-h[%d,%d],act[%d,%d][f=%d],x_y_offset[%d,%d]",
             specialwin ? handle->share_fd:handle->video_addr, SrcVirW, SrcVirH,SrcActW,SrcActH,specialwin ?  hwChangeRgaFormat(handle->format):RK_FORMAT_YCbCr_420_SP,xoffset,yoffset);
         ALOGE("err dst fd=[%x],w-h[%d,%d],act[%d,%d][f=%d],rot=%d,rot_mod=%d",
             fd_dst, DstVirW, DstVirH,DstActW,DstActH,Dstfmt,Rotation,RotateMode);
+    }
+
+    if (fd_dup > -1) {
+	    close(fd_dup);
+	    if (cpu_ptr != MAP_FAILED)
+	        munmap(cpu_ptr, handle->size);
     }
 
     //  pthread_mutex_unlock(&_contextAnchor->lock);
@@ -896,7 +946,7 @@ int rga_video_copybit(struct private_handle_t *handle,int tranform,int w_valid,i
         pfile = fopen(layername,"wb");
         if(pfile)
         {
-            fwrite((const void *)(GPU_BASE),(size_t)(3 * handle->stride*handle->height /2),1,pfile);
+            fwrite((const void *)(baseAddr),(size_t)(3 * handle->stride*handle->height /2),1,pfile);
             fclose(pfile);
         }
     }
