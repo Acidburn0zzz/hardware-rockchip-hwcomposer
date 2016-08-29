@@ -1324,6 +1324,9 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             continue;
         }
 
+        if (SrcHnd && (SrcHnd->usage & GRALLOC_USAGE_PROTECTED))
+            Context->mSecureLayer |= 1 << i;
+
 #if !ENABLE_LCDC_IN_NV12_TRANSFORM
         if(Context->mGtsStatus)
 #endif
@@ -8688,6 +8691,8 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     context->mNeedRgaTransform = false;
     context->mNV12_VIDEO_VideoMode = false;
     context->mHasYuvTenBit = false;
+    context->mSecureLayer = 0;
+
 #if G6110_SUPPORT_FBDC
     context->bFbdc = false;
 #endif
@@ -9055,7 +9060,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
 
     context->mLastCompType = context->zone_manager.mCmpType;
 
-    if (context->mOneWinOpt && !context->mHasYuvTenBit)
+    if (context->mOneWinOpt && !context->mHasYuvTenBit && !context->mSecureLayer)
         goto GpuComP;
 
     return 0;

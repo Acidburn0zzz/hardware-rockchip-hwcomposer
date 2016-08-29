@@ -657,6 +657,7 @@ typedef struct _hwcContext
     bool                           mHasYuvTenBit;
     int                            mLastCompType;
     int                            mOneWinOpt;
+    unsigned int                   mSecureLayer;
 
     int (*fun_policy[HWC_POLICY_NUM])(void * ,hwc_display_contents_1_t*);
 
