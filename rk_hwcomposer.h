@@ -653,6 +653,7 @@ typedef struct _hwcContext
     hdmiStateInfo                  mHdmiSI;
 
     /*****************policy *****************************/
+    bool                           mComVop;
     bool                           mMultiwindow;
     bool                           mHasYuvTenBit;
     int                            mLastCompType;

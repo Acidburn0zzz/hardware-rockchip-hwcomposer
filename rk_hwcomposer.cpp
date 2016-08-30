@@ -1169,6 +1169,38 @@ static bool is_primary_and_resolution_changed(hwcContext * ctx)
     return ret;
 }
 
+static bool is_common_vop(int vopIndex)
+{
+    const char node[] = "/sys/class/graphics/fb%u/win_property";
+    char nodeName[100] = {0};
+    char value[100] = {0};
+    unsigned int winFeature = 0;
+    int fbindx = 0;
+    int fbFd = -1;
+    int ret = 0;
+    if (vopIndex == 0)
+        fbindx = 1;
+    if (vopIndex == 1)
+        fbindx = 6;
+
+    snprintf(nodeName, 64, node, fbindx);
+
+    ALOGD("nodeName=%s",nodeName);
+    fbFd = open(nodeName,O_RDONLY);
+    if(fbFd > -1) {
+        ret = read(fbFd,value,80);
+        if(ret <= 0) {
+            ALOGE("fb%d/win_property read fail %s", fbindx, strerror(errno));
+        } else {
+            sscanf(value, "feature: %d", &winFeature);
+            ALOGI("fb%d/win_property winFeature:0x%x", fbindx, winFeature);
+        }
+        close(fbFd);
+    }
+
+    return winFeature & 0x2;
+}
+
 static int initPlatform(hwcContext* ctx)
 {
     if (!ctx)
@@ -5673,7 +5705,7 @@ int try_wins_dispatch_win02 (void * ctx,hwc_display_contents_1_t * list)
             return -1;    
         }
     }
-#endif   
+#endif
     //Mark the composer mode to HWC_MIX_V2
     memcpy(&Context->zone_manager,&zone_m,sizeof(ZoneManager));
 
@@ -7689,6 +7721,66 @@ int dump_config_info(struct rk_fb_win_cfg_data fb_info ,hwcContext * context, in
     return 0;
 }
 
+int init_common_policy(hwcContext *context)
+{
+    context->fun_policy[HWC_HOR] = try_wins_dispatch_hor;
+    context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_mix_v2;
+    context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_mix_up;
+    context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_mix_down;
+    context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_mix_cross;
+#ifdef SUPPORT_STEREO
+    context->fun_policy[HWC_MIX_FPS] = try_wins_mix_fp_stereo;
+#else
+    context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
+#endif
+    context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_vh;
+
+    return 0;
+}
+
+int init_big_vop_mipi_dual_out_policy(hwcContext *context)
+{
+    context->fun_policy[HWC_HOR] = try_wins_dispatch_win02;
+    context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_win02;
+
+    return 0;
+}
+
+int init_lite_vop_mipi_dual_out_policy(hwcContext *context)
+{
+    context->fun_policy[HWC_HOR] = try_wins_dispatch_win0;
+    context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_skip;
+
+    return 0;
+}
+
+int init_lite_vop_policy(hwcContext *context)
+{
+    context->fun_policy[HWC_HOR] = try_wins_dispatch_win0;
+    context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_skip;
+#ifdef SUPPORT_STEREO
+    context->fun_policy[HWC_MIX_FPS] = try_wins_mix_fp_stereo;
+#else
+    context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
+#endif
+    context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_skip;
+    context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_vh;
+
+    return 0;
+}
+
 int hwc_collect_acquire_fence_fd(hwcContext * ctx,hwc_display_contents_1_t *list)
 {
     ZoneManager* pzone_mag = NULL;
@@ -8342,7 +8434,7 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
             fb_info.win_par[win_no-1].z_order = z_order-2;
             fb_info.win_par[win_no-2].z_order = z_order-1;
         }
-        if (context->isMid && context->mHdmiSI.mix_vh && dpyID && context->isRk3399) {
+        if (!context->mComVop && context->mHdmiSI.mix_vh) {
             fb_info.win_par[win_no-1].win_id = 2;
             fb_info.win_par[win_no-1].z_order = 2;
         }
@@ -11299,6 +11391,8 @@ hwc_device_open(
 #if DUAL_VIEW_MODE
     context->mIsDualViewMode = true;
 #endif
+    context->mComVop = true;
+    context->mIsMipiDualOutMode = false;
 
 #if HTGFORCEREFRESH
     init_thread_pamaters(&context->mRefresh);
@@ -11451,32 +11545,34 @@ hwc_device_open(
     }
 #endif
 
+#if defined(TARGET_BOARD_PLATFORM_RK3399) || defined(TARGET_BOARD_PLATFORM_RK3366)
+    context->mComVop = is_common_vop(0/*hwc_device_open is open index of 0*/);
+    if (context->mComVop)
+        ALOGI("Primary is big vop type!!!!!");
+#endif
+
     /* Increment reference count. */
     context->reference++;
-#if 0//DUAL_MIPI_OUTPUT
-    context->fun_policy[HWC_HOR] = try_wins_dispatch_win02;
-    context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_win02;
-    context->mIsMipiDualOutMode = true;
-#else
-    context->mIsMipiDualOutMode = false;
-    context->fun_policy[HWC_HOR] = try_wins_dispatch_hor;
-    context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_mix_v2;
-    context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_mix_up;
-    context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_mix_down;
-    context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_mix_cross;
-#ifdef SUPPORT_STEREO
-    context->fun_policy[HWC_MIX_FPS] = try_wins_mix_fp_stereo;
-#else
-    context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
-#endif
-    context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_vh;
-#endif
+
     initPlatform(context);
+
+    context->mIsMipiDualOutMode = false;
+
+    if ((context->isRk3399 || context->isRk3366)) {
+        if (context->mComVop && context->mIsMipiDualOutMode)
+            init_big_vop_mipi_dual_out_policy(context);
+        else if (!context->mComVop && context->mIsMipiDualOutMode)
+            init_lite_vop_mipi_dual_out_policy(context);
+        else if (context->mComVop)
+            init_common_policy(context);
+        else
+            init_lite_vop_policy(context);
+    } else {
+        if (context->mIsMipiDualOutMode)
+            init_big_vop_mipi_dual_out_policy(context);
+        else
+            init_common_policy(context);
+    }
 
     _contextAnchor = context;
 #if VIRTUAL_RGA_BLIT
@@ -11560,6 +11656,7 @@ hwc_device_open(
     }
     */
     init_hdmi_mode();
+    
     pthread_t t;
     if (pthread_create(&t, NULL, rk_hwc_hdmi_thread, NULL))
     {
@@ -12063,44 +12160,36 @@ int hotplug_get_config(int flag){
     }
     context->mSrBI.mCurIndex = 0;
 #endif
+
+    context->mComVop = true;
+#if defined(TARGET_BOARD_PLATFORM_RK3399) || defined(TARGET_BOARD_PLATFORM_RK3366)
+    context->mComVop = is_common_vop(1/*hwc_device_open is open index of 0*/);
+    if (context->mComVop)
+        ALOGI("Externel is big vop type!!!!!");
+#endif
+
 #if DUAL_MIPI_OUTPUT
-    context->fun_policy[HWC_HOR] = try_wins_dispatch_win0;
-    context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_skip;
     context->mIsMipiDualOutMode = true;
-#else
-    context->mIsMipiDualOutMode = false;
-#if defined(TARGET_BOARD_PLATFORM_RK3366) || defined(TARGET_BOARD_PLATFORM_RK3399)
-    context->fun_policy[HWC_HOR] = try_wins_dispatch_win0;
-    context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_skip;
-#ifdef SUPPORT_STEREO
-    context->fun_policy[HWC_MIX_FPS] = try_wins_mix_fp_stereo;
-#else
-    context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
 #endif
-    context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_skip;
-    context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_vh;
-#else
-    context->fun_policy[HWC_HOR] = try_wins_dispatch_hor;
-    context->fun_policy[HWC_MIX_DOWN] = try_wins_dispatch_mix_down;
-    context->fun_policy[HWC_MIX_CROSS] = try_wins_dispatch_mix_cross;
-    context->fun_policy[HWC_MIX_VTWO] = try_wins_dispatch_mix_v2;
-#ifdef SUPPORT_STEREO
-    context->fun_policy[HWC_MIX_FPS] = try_wins_mix_fp_stereo;
-#else
-    context->fun_policy[HWC_MIX_FPS] = try_wins_dispatch_skip;
-#endif
-    context->fun_policy[HWC_MIX_UP] = try_wins_dispatch_mix_up;
-    context->fun_policy[HWC_MIX_VH] = try_wins_dispatch_mix_vh;
-#endif
-#endif
+
     initPlatform(context);
+
+    if ((context->isRk3399 || context->isRk3366)) {
+        if (context->mComVop && context->mIsMipiDualOutMode)
+            init_big_vop_mipi_dual_out_policy(context);
+        else if (!context->mComVop && context->mIsMipiDualOutMode)
+            init_lite_vop_mipi_dual_out_policy(context);
+        else if (context->mComVop)
+            init_common_policy(context);
+        else
+            init_lite_vop_policy(context);
+    } else {
+        if (context->mIsMipiDualOutMode)
+            init_big_vop_mipi_dual_out_policy(context);
+        else
+            init_common_policy(context);
+    }
+
     _contextAnchor1 = context;
 #if !(defined(GPU_G6110) || defined(RK3399_BOX))
 #ifdef RK3288_BOX
