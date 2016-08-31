@@ -1165,6 +1165,8 @@ static bool is_primary_and_resolution_changed(hwcContext * ctx)
         ret = true;
     if (context && (context->isRk3399 || context->isRk3366))
         ret = ret && context->mResolutionChanged;
+    else
+        ret = false;
 
     return ret;
 }
