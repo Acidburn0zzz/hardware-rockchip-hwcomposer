@@ -1064,6 +1064,11 @@ bool is_hotplug_connected()
 
 bool is_need_post(hwc_display_contents_1_t *list,int dpyID,int flag)
 {
+    hwcContext * ctxp = _contextAnchor;
+
+    if (ctxp->isRk3399 || ctxp->isRk3366)
+        return true;
+
 #ifdef RK3288_BOX
     hwcContext * context = _contextAnchor;
     if(context->mLcdcNum == 2) {
@@ -1112,6 +1117,10 @@ bool is_need_post(hwc_display_contents_1_t *list,int dpyID,int flag)
 bool is_gpu_or_nodraw(hwc_display_contents_1_t *list,int dpyID)
 {
     hwcContext * ctxp = _contextAnchor;
+
+    if (ctxp->isRk3399 || ctxp->isRk3366)
+        return false;
+
 #ifdef RK3288_BOX
     if(ctxp->mLcdcNum == 2) {
 #if DUAL_VIEW_MODE
@@ -9397,9 +9406,11 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         ALOGD_IF(log(HLLTWO),"dpyID=%d list null",dpyID);
         return 0;
     }
+
     if(is_gpu_or_nodraw(list,dpyID)){
         return 0;
     }
+
 #if (defined(GPU_G6110) || defined(RK3288_BOX))
 #if USE_WM_SIZE
     if(_contextAnchor->mHdmiSI.anroidSt){
@@ -9917,7 +9928,7 @@ hwc_prepare(
                 list_e->hwLayers[i].compositionType = HWC_FRAMEBUFFER;
             }
         }    
-#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX))
 #ifdef RK3288_BOX
         if(context->mLcdcNum == 2){
             return 0;
@@ -11377,7 +11388,7 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
         return;
     }
     bool isNeedRemove = true;
-#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
+#if (defined(GPU_G6110) || defined(RK3288_BOX))
 #ifdef RK3288_BOX
     if(context->mLcdcNum == 1){
 #endif
@@ -11435,6 +11446,11 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
             hotplug_set_frame(context,0);
         }
 #endif
+
+        if(context->isRk3399 || context->isRk3366){
+            hotplug_set_frame(context,0);
+        }
+
         context->dpyAttr[HWC_DISPLAY_EXTERNAL].connected = false;
         context->procs->hotplug(context->procs, HWC_DISPLAY_EXTERNAL, 0);
 #if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
@@ -11463,6 +11479,10 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
             hotplug_set_frame(context,0);
         }
 #endif
+        if(context->isRk3399 || context->isRk3366){
+            hotplug_set_frame(context,0);
+        }
+
         char value[PROPERTY_VALUE_MAX];
         property_set("sys.hwc.htg","hotplug");
         context->procs->hotplug(context->procs, HWC_DISPLAY_EXTERNAL, 1);
@@ -12631,8 +12651,8 @@ int hotplug_get_config(int flag){
 	info.grayscale = 0;
 	info.grayscale |= info.xres<< 8;
 	info.grayscale |= info.yres<<20;
-#if (defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
-#if defined(RK3288_BOX) || defined(RK3399_BOX)
+#if (defined(GPU_G6110) || defined(RK3288_BOX))
+#if defined(RK3288_BOX)
     if(_contextAnchor->mLcdcNum == 1){
         if(_contextAnchor->fbFd > 0){
             fd  =  _contextAnchor->fbFd;
