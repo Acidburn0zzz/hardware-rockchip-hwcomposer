@@ -134,7 +134,7 @@ int hwcGetBufferSizeForRga(IN int w,IN int h,IN int fmt)
     return size;
 }
 
-#if VIRTUAL_RGA_BLIT
+#if RGA_BLIT
 hwcSTATUS
 hwcGetBufferInfo(
       hwcContext  * Context,
@@ -165,7 +165,7 @@ hwcGetBufferInfo(
 **  These are collected from hardware/libhardware/include/hardware/hardware.h
 */
 
-#if VIRTUAL_RGA_BLIT
+#if RGA_BLIT
 hwcSTATUS
 hwcGetBufFormat(
       struct private_handle_t * Handle,

@@ -67,7 +67,7 @@ _HasAlpha(RgaSURF_FORMAT Format)
            );
 }
 */
-#if VIRTUAL_RGA_BLIT
+#if RGA_BLIT
 static int _DumpFbInfo(struct fb_var_screeninfo *info, int win)
 {
     LOGD("dump win%d: vir[%d,%d] [%d,%d,%d,%d] => [%d,%d,%d,%d]", win,
