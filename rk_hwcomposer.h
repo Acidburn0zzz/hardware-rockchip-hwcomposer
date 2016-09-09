@@ -725,6 +725,7 @@ typedef struct _hwcContext
     /************vop info****************************/
     void*                          vopctx;
     unsigned int                   vopType;
+    int                            vopDispMode;
 
     /************platform info***********************/
     bool                           isVr;

@@ -1221,6 +1221,42 @@ static bool is_common_vop(int vopIndex)
     return winFeature & 0x2;
 }
 
+static int queryVopScreenMode(hwcContext* ctx)
+{
+    if (!ctx)
+        return -EINVAL;
+
+    const char node[] = "/sys/class/graphics/fb%u/dsp_mode";
+    char nodeName[80];
+    char value[20];
+    int fbindex = 0;
+    int ret;
+
+    if (ctx->mContextIndex == 0)
+        fbindex = 0;
+    else if (ctx->mContextIndex == 1 && (ctx->isRk3399 || ctx->isRk3399))
+        fbindex = 5;
+    else
+        fbindex = 4;
+
+    snprintf(nodeName, 64, node, fbindex);
+
+    ALOGD("%s:%d:nodeName=%s",__func__,__LINE__,nodeName);
+    int fd = open(nodeName,O_RDONLY);
+    if (fd > -1) {
+        ret = read(fd, value, 20);
+        if (ret <= 0) {
+            ALOGE("fb%d/win_property read fail %s", fbindex, strerror(errno));
+        }
+        close(fd);
+    }
+
+    ctx->vopDispMode = atoi(value);
+    ALOGI("ctx[%d]->vopDispMode=%d", ctx->mContextIndex, ctx->vopDispMode);
+
+    return 0;
+}
+
 static int initPlatform(hwcContext* ctx)
 {
     if (!ctx)
@@ -10193,10 +10229,8 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
         }
 #endif
 
-#if DUAL_MIPI_OUTPUT
-        if (dpyID)
-	        mipi_dual_vop_config(&fb_info);
-#endif
+        if (context->mIsMipiDualOutMode)
+            mipi_dual_vop_config(&fb_info);
 
 #ifdef USE_AFBC_LAYER
         uint64_t internal_format = handle->internal_format;
@@ -10405,10 +10439,10 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
             goto UseFence;
         }
 #endif
-#if DUAL_MIPI_OUTPUT
-        if (dpyID)
+
+        if (context->mIsMipiDualOutMode)
 	        mipi_dual_vop_config(&hfi.fb_info);
-#endif
+
         DUMP_FB_CONFIG_FOR_NEXT_FRAME(&(hfi.fb_info), 1);
         D("to perform RK_FBIOSET_CONFIG_DONE for hwc_set_lcdc with mix_flag '%d'.", mix_flag);
         if(ioctl(context->fbFd, RK_FBIOSET_CONFIG_DONE, &(hfi.fb_info))) {
@@ -12278,7 +12312,9 @@ hwc_device_open(
 
     initPlatform(context);
 
-    context->mIsMipiDualOutMode = false;
+    queryVopScreenMode(context);
+
+    context->mIsMipiDualOutMode = context->vopDispMode == 2;
 
     init_every_to_skip_policy(context);
 
@@ -12812,7 +12848,7 @@ int hotplug_get_config(int flag){
     context->mTrsfrmbyrga = false;
     context->mOneWinOpt = false;
     context->mLastCompType = -1;
-    context->mContextIndex = 0;
+    context->mContextIndex = 1;
 
     context->fb_fps = refreshRate / 1000.0f;
 
@@ -12898,11 +12934,11 @@ int hotplug_get_config(int flag){
         ALOGI("Externel is big vop type!!!!!");
 #endif
 
-#if DUAL_MIPI_OUTPUT
-    context->mIsMipiDualOutMode = true;
-#endif
-
     initPlatform(context);
+
+    queryVopScreenMode(context);
+
+    context->mIsMipiDualOutMode = context->vopDispMode == 2;
 
     init_every_to_skip_policy(context);
 
