@@ -10520,6 +10520,9 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
             }
         }
 #endif
+
+        DUMP_FB_CONFIG_FOR_NEXT_FRAME(&fb_info, 1);
+        D("to perform RK_FBIOSET_CONFIG_DONE for hwc_post.");
         if(ioctl(context->fbFd, RK_FBIOSET_CONFIG_DONE, &fb_info)){
             ALOGE("ID=%d:ioctl fail:%s",context!=_contextAnchor,strerror(errno));
             dump_config_info(fb_info,context,3);
