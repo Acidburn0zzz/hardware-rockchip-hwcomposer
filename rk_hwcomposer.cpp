@@ -105,7 +105,7 @@ static unsigned int     createCrc32(unsigned int crc,unsigned const char *buffer
 static void             initCrcTable(void);
 static int              fence_merge(char * value, int fd1, int fd2);
 static int              dual_view_vop_config(struct rk_fb_win_cfg_data * fbinfo);
-static int              mipi_dual_vop_config(struct rk_fb_win_cfg_data * fbinfo);
+static int              mipi_dual_vop_config(hwcContext *ctx, struct rk_fb_win_cfg_data * fbinfo);
 /*-------------------------------------------------------*/
 
 #ifdef USE_AFBC_LAYER
@@ -5336,6 +5336,11 @@ int try_wins_dispatch_win0 (void * ctx,hwc_display_contents_1_t * list)
         mix_index = 0;
     }
 
+    if (!Context->mComVop && Context->mIsMipiDualOutMode) {
+        ALOGD_IF(log(HLLTHR),"lcdc dont support 5 wins [%d]",__LINE__);
+        return -1;
+    }
+
     if (pzone_mag->zone_cnt != 1) {
         ALOGD_IF(log(HLLTHR),"lcdc dont support 5 wins [%d]",__LINE__);
     	return -1;
@@ -10105,15 +10110,13 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
         winID = 0;
 
     if (context->mResolutionChanged)
-	winID = 0;
+	    winID = 0;
 
     if (context->isVr)
-	winID = 0;
+	    winID = 0;
 
-#if DUAL_MIPI_OUTPUT
-    if (1 == dpyID)
+    if (context->mIsMipiDualOutMode && !context->mComVop)
         winID = 0;
-#endif
 
     if (ctxp->mHdmiSI.NeedReDst && dpyID)
 	winID = 0;
@@ -10230,7 +10233,7 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
 #endif
 
         if (context->mIsMipiDualOutMode)
-            mipi_dual_vop_config(&fb_info);
+            mipi_dual_vop_config(context, &fb_info);
 
 #ifdef USE_AFBC_LAYER
         uint64_t internal_format = handle->internal_format;
@@ -10318,17 +10321,17 @@ UseFence:
 #if USE_HWC_FENCE
         for(int k=0;k<RK_MAX_BUF_NUM;k++)
         {
-            #if DUAL_MIPI_OUTPUT
-            char fname[15] = "hwc_fb_target";
-            if(fb_info.rel_fence_fd[k] >= 0) {
-                fbLayer->releaseFenceFd = fence_merge(fname,
-                    fbLayer->releaseFenceFd, fb_info.rel_fence_fd[k]);
+            if (context->mIsMipiDualOutMode) {
+                char fname[15] = "hwc_fb_target";
+                if(fb_info.rel_fence_fd[k] >= 0) {
+                    fbLayer->releaseFenceFd = fence_merge(fname,
+                        fbLayer->releaseFenceFd, fb_info.rel_fence_fd[k]);
+                }
+            } else {
+                if(fb_info.rel_fence_fd[k] >= 0) {
+                    fbLayer->releaseFenceFd = fb_info.rel_fence_fd[k];
+                }
             }
-            #else
-            if(fb_info.rel_fence_fd[k] >= 0) {
-                fbLayer->releaseFenceFd = fb_info.rel_fence_fd[k];
-            }    
-            #endif
         }
 		if(fb_info.ret_fence_fd >= 0)
         	list->retireFenceFd = fb_info.ret_fence_fd;
@@ -10441,7 +10444,7 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
 #endif
 
         if (context->mIsMipiDualOutMode)
-	        mipi_dual_vop_config(&hfi.fb_info);
+            mipi_dual_vop_config(context, &hfi.fb_info);
 
         DUMP_FB_CONFIG_FOR_NEXT_FRAME(&(hfi.fb_info), 1);
         D("to perform RK_FBIOSET_CONFIG_DONE for hwc_set_lcdc with mix_flag '%d'.", mix_flag);
@@ -11337,8 +11340,13 @@ void hwc_primary_screen_query() {
         close(fd);
         sscanf(buf,"xres:%d yres:%d",&width,&height);
         ALOGD("hwc_change_config:width=%d,height=%d",width,height);
-        context->dpyAttr[HWC_DISPLAY_PRIMARY].relxres = width;
-        context->dpyAttr[HWC_DISPLAY_PRIMARY].relyres = height;
+        if (context->mIsMipiDualOutMode) {
+            context->dpyAttr[HWC_DISPLAY_PRIMARY].relxres = width / 2;
+            context->dpyAttr[HWC_DISPLAY_PRIMARY].relyres = height * 2;
+        } else {
+            context->dpyAttr[HWC_DISPLAY_PRIMARY].relxres = width;
+            context->dpyAttr[HWC_DISPLAY_PRIMARY].relyres = height;
+        }
     }
 
     return;
@@ -12460,6 +12468,9 @@ hwc_device_open(
     if(xxx_w && xxx_h)
         hwc_primary_screen_query();
 
+    if (context->mIsMipiDualOutMode)
+        hwc_primary_screen_query();
+
     return 0;
 
 OnError:
@@ -13066,7 +13077,7 @@ int hotplug_set_config()
     int dType = HWC_DISPLAY_EXTERNAL;
     hwcContext * ctxp = _contextAnchor;
     hwcContext * ctxe = _contextAnchor1;
-    if(ctxe != NULL) {
+    if (ctxe != NULL) {
         ctxp->dpyAttr[dType].fd           = ctxe->dpyAttr[dType].fd;
         ctxp->dpyAttr[dType].stride       = ctxe->dpyAttr[dType].stride;
         ctxp->dpyAttr[dType].xres         = ctxe->dpyAttr[dType].xres;
@@ -13075,27 +13086,23 @@ int hotplug_set_config()
         ctxp->dpyAttr[dType].ydpi         = ctxe->dpyAttr[dType].ydpi;
         ctxp->dpyAttr[dType].vsync_period = ctxe->dpyAttr[dType].vsync_period;
         ctxp->dpyAttr[dType].connected    = true;
-        if(ctxp->mIsDualViewMode) {
+        if (ctxp->mIsDualViewMode) {
             ctxp->dpyAttr[dType].xres = ctxe->dpyAttr[dType].xres * 2;
             ctxp->dpyAttr[dType].yres = ctxe->dpyAttr[dType].yres;
             ctxe->mIsDualViewMode = true;
             LOGV("w_s,h_s,w_d,h_d = [%d,%d,%d,%d]",
                 ctxp->dpyAttr[dType].xres,ctxp->dpyAttr[dType].yres,
                 ctxe->dpyAttr[dType].xres,ctxe->dpyAttr[dType].yres);
-#if DUAL_MIPI_OUTPUT
-	    } else if(ctxp->dpyAttr[dType].yres) {
-#else
-        } else if(ctxp->dpyAttr[dType].yres > 1080 && ctxp->dpyAttr[dType].xres > ctxp->dpyAttr[dType].yres) {
-#endif
-#if DUAL_MIPI_OUTPUT
+	    } else if (ctxe->mIsMipiDualOutMode) {
             ctxp->dpyAttr[dType].xres /= 2;
             ctxp->dpyAttr[dType].yres *= 2;
-            //ctxp->mHdmiSI.NeedReDst = true;
-#else
+            LOGV("w_s,h_s,w_d,h_d = [%d,%d,%d,%d]",
+                ctxp->dpyAttr[dType].xres,ctxp->dpyAttr[dType].yres,
+                ctxe->dpyAttr[dType].xres,ctxe->dpyAttr[dType].yres);
+        } else if (ctxp->dpyAttr[dType].yres > 1080 && ctxp->dpyAttr[dType].xres > ctxp->dpyAttr[dType].yres) {
             ctxp->dpyAttr[dType].yres = 1080;
             ctxp->dpyAttr[dType].xres = 1920 * ctxp->dpyAttr[dType].yres / ctxe->dpyAttr[dType].yres;
             ctxp->mHdmiSI.NeedReDst = true;
-#endif
             LOGV("w_s,h_s,w_d,h_d = [%d,%d,%d,%d]",
                 ctxp->dpyAttr[dType].xres,ctxp->dpyAttr[dType].yres,
                 ctxe->dpyAttr[dType].xres,ctxe->dpyAttr[dType].yres);
@@ -13749,7 +13756,8 @@ static int fence_merge(char* value,int fd1,int fd2)
     return ret;
 }
 
-static int mipi_dual_vop_config(struct rk_fb_win_cfg_data * fbinfo)
+static int mipi_dual_vop_config(hwcContext *ctx,
+                                    struct rk_fb_win_cfg_data * fbinfo)
 {
     int ret = -1;
     int xvir = 0;
@@ -13770,18 +13778,26 @@ static int mipi_dual_vop_config(struct rk_fb_win_cfg_data * fbinfo)
 
     int index = 0;
     int acq_fence_fd = -1;
+
+    int dpyPw = 0;
+    int dpyPh = 0;
+
     struct rk_fb_win_cfg_data fbpinfo;
     memcpy(&fbpinfo,fbinfo,sizeof(fbpinfo));
-
-    hwcContext * ctx = _contextAnchor1;
 
     if (!ctx)
         return 0;
 
-    int dpyPw = ctx->dpyAttr[1].xres / 2;
-    int dpyPh = ctx->dpyAttr[1].yres * 2;
+    if (ctx->mContextIndex == 0) {
+        dpyPw = ctx->dpyAttr[0].relxres;
+        dpyPh = ctx->dpyAttr[0].relyres;
+    } else if (ctx->mContextIndex == 1) {
+        dpyPw = ctx->dpyAttr[1].xres / 2;
+        dpyPh = ctx->dpyAttr[1].yres * 2;
+    }
 
-    dump_config_info(*fbinfo,ctx,3);
+    //if (!ctx->mComVop)
+        //dump_config_info(*fbinfo,ctx,3);
     ALOGD_IF(log(HLLONE),"pri[%d,%d]",dpyPw,dpyPh);
     for(int i = 0;i < 4;i++) {
         for(int j = 0;j < 4;j++) {
@@ -13830,7 +13846,10 @@ static int mipi_dual_vop_config(struct rk_fb_win_cfg_data * fbinfo)
                     index++;
                     z_order_offset++;
 
-                    fbpinfo.win_par[index].win_id                    = 2;
+                    if (ctx->mComVop)
+                        fbpinfo.win_par[index].win_id                = 1;
+                    else
+                        fbpinfo.win_par[index].win_id                = 2;
                     fbpinfo.win_par[index].area_par[0].xvir          = xvir;
                     fbpinfo.win_par[index].area_par[0].yvir          = yvir;
                     fbpinfo.win_par[index].area_par[0].x_offset      = x_offset;
@@ -13844,7 +13863,10 @@ static int mipi_dual_vop_config(struct rk_fb_win_cfg_data * fbinfo)
                     fbpinfo.win_par[index].area_par[0].acq_fence_fd  = -1;
                     fbpinfo.win_par[index].area_par[0].data_format   = format;
                     fbpinfo.win_par[index].area_par[0].ion_fd        = ion_fd;
-                    fbpinfo.win_par[index].z_order                   = z_order + z_order_offset + 1;
+                    if (ctx->mComVop)
+                        fbpinfo.win_par[index].z_order               = z_order + z_order_offset;
+                    else
+                        fbpinfo.win_par[index].z_order               = z_order + z_order_offset + 1;
 
                     index ++;
                 } else {
@@ -13897,7 +13919,7 @@ static int mipi_dual_vop_config(struct rk_fb_win_cfg_data * fbinfo)
             }
         }
     }
-    dump_config_info(fbpinfo,ctx,10);
+    //dump_config_info(fbpinfo,ctx,10);
     memcpy(fbinfo,&fbpinfo,sizeof(fbpinfo));
     return 0;
 }

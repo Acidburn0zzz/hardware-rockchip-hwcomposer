@@ -164,10 +164,6 @@ endif #phone
 endif #box
 endif #tablet
 
-ifeq ($(strip $(BOARD_USE_DUAL_MIPI)),true)
-LOCAL_CFLAGS += -DONE_VOP_DUAL_MIPI_OUT
-endif
-
 ifeq ($(strip $(TARGET_BOARD_PLATFORM_GPU)),G6110)
         LOCAL_CFLAGS += -DGPU_G6110
 endif

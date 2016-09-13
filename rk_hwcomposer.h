@@ -69,12 +69,6 @@
 #define VIRTUAL_RGA_BLIT                0           //1:wfd optimazition by rga
 #endif
 
-#ifdef ONE_VOP_DUAL_MIPI_OUT
-#define DUAL_MIPI_OUTPUT		1
-#else
-#define DUAL_MIPI_OUTPUT                0
-#endif
-
 #ifdef RK3288_MID
 #define DUAL_VIEW_MODE                  0           //1:support dual view
 #define ONLY_USE_ONE_VOP                0
