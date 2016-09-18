@@ -142,9 +142,9 @@
 //lcdc support fbdc format
 enum data_format {
 FBDC_RGB_565 = 0x26,
-FBDC_ARGB_888,
-FBDC_RGBX_888,
-FBDC_ABGR_888
+FBDC_ARGB_888,  // 0x27
+FBDC_RGBX_888,  // RGBX8888, 0x28
+FBDC_ABGR_888   // 0x29
 };
 
 #define IS_ALIGN(val,align)    (((val)&(align-1))==0)
@@ -190,6 +190,10 @@ FBDC_ABGR_888
 /*      Free for customer use        HAL_PIXEL_FORMAT_VENDOR_EXT(15) */
 
 #endif  //end of GPU_G6110
+
+#if USE_AFBC_LAYER
+#define IS_ALIGN(val,align)    (((val)&(align-1))==0)
+#endif
 
 /* Set it to 1 to enable swap rectangle optimization;
  * Set it to 0 to disable. */
@@ -294,11 +298,14 @@ typedef struct _FenceMangrRga
 FenceMangrRga;
 #endif
 
+/**
+ * id_of_area_in_rk_vop.
+ */
 typedef enum _hwc_lcdc_res
 {
-	win0				= 1,
+	win0				= 1,    // win0 只有一个 area.
 	win1                = 2,
-	win2_0              = 3,   
+	win2_0              = 3,    // area0_in_win2.
 	win2_1              = 4,
 	win2_2              = 5,
 	win2_3              = 6,   
@@ -311,49 +318,108 @@ typedef enum _hwc_lcdc_res
 }
 hwc_lcdc_res;
 
+/**
+ * 用于保存处理之后的, 一个 hwc_layer 的信息.
+ */
 typedef struct _ZoneInfo
 {
     unsigned int        stride;
     unsigned int        width;
     unsigned int        height;
+    /**
+     * source_crop in coordinate_space_for_graphic_buffer.
+     */
     hwc_rect_t  src_rect;
+    /**
+     * rect_of_display_frame_on_screen.
+     */
     hwc_rect_t  disp_rect;
+    /**
+     * handle to native_buffer of current layer.
+     */
     struct private_handle_t *handle;      
 	int         layer_fd;
 	int         direct_fd;
 	unsigned int addr;
+    /**
+     * value 是 0 到 255 的 layer_alpha.
+     */
 	int         zone_alpha;
 	int         blend;
+    /**
+     * 当前 layer 送显示的时候是否需要缩放.
+     */
 	bool        is_stretch;
+    /**
+     * 当前 layer 是否是 yuv_format.
+     */
 	bool        is_yuv;
 	int         is_large;
+    /**
+     * 估算得到的 bytes size of current_layer.
+     * "不是" 从 private_handle_t::size 得到.
+     */
 	int         size;
 	bool        scale_err;
 	bool        zone_err;
 	bool        source_err;
+    /**
+     * layer 的宽或者高小余 16.
+     */
 	bool        toosmall;
 	float       vfactor;
+    /**
+     * 水平方向上, src_rect / dest_rect 的比例.
+     */
 	float       hfactor;
 	int         format;
 #ifdef USE_AFBC_LAYER
+    /**
+     * internal_format of buffer from arm_gralloc.
+     */
 	uint64_t    internal_format;
 #endif
+    /**
+     * index_of_zone, 从 0 开始.
+     */
 	int         zone_index;
+    /**
+     * index_of_layer, 从 0 开始.
+     */
 	int         layer_index;
+    /**
+     * current_layer 的 transform. 表示方式同 hwc_layer_l_t::transform.
+     */
 	int         transform;
 	int         realtransform;
 	int         layer_flag;
+    /**
+     * 将用来显示当前 layer 的 area_in_rk_vop 的 id.
+     */
 	int         dispatched;
 	int         sort;
 	int         alreadyStereo;
 	int         displayStereo;
 	int         glesPixels;
 	int         overlayPixels;
+    /**
+     * hwc 是否 "不要" 处理当前 layer.
+     * 即 当前 layer 不会以 overlay 方式送显示.
+     */
 	int         skipLayer;
+    /**
+     * 实际上是 crc32_of_rect_instance_of_display_frame_of_current_layer.
+     */
     unsigned int zoneCrc;
 	char        LayerName[LayerNameLength + 1];   
 #ifdef USE_HWC_FENCE
+    /**
+     * ptr to release_fence of layer.
+     */
     int*        pRelFenceFd;
+    /**
+     * acquire_fence of layer.
+     */
     int         acq_fence_fd;
 #endif
 }
@@ -374,6 +440,12 @@ typedef struct _RgaTrfBakInfo
 }
 RgaTBI;
 
+/**
+ * 用于保存从 hwc_display_contents 获取的所有 layer 的信息.
+ * .DP : zone_manager, layers_info_manager
+ * 这里一个 "zone" 对应一个 hwc_layer.
+ * 参见 collect_all_zones().
+ */
 typedef struct _ZoneManager
 {
     ZoneInfo    zone_info[MaxZones];
@@ -497,10 +569,17 @@ struct tVPU_FRAME_v2
     uint32_t         format;        // 16 aligned frame height
 };
 
+/**
+ * 对 struct rk_fb_win_cfg_data 的再包装.
+ * .DP : hwc_wrapper_of_data_for_rk_fb_ioctl_config_done, hwc_wrapper_of_data_for_config_done
+ */
 struct hwc_fb_info
 {
+    /**
+     * 若元素非 NULL, 保存对应的 hwc_layer_l_t 实例中 'releaseFenceFd' 成员的 指针.
+     */
     int* pRelFenceFd[RK_MAX_BUF_NUM];
-    struct rk_fb_win_cfg_data fb_info;
+    struct rk_fb_win_cfg_data fb_info; // data_for_rk_fb_ioctl_config_done
     char LayerName[RK_MAX_BUF_NUM][LayerNameLength + 1];
 };
 
@@ -540,6 +619,9 @@ typedef struct _hdmiStateInfo
      buffer_handle_t FrameHandle;
 }hdmiStateInfo;
 
+/**
+ * hwc_overlay_policy 的 index.
+ */
 typedef enum _cmpType
 {
     HWC_HOR = 0,
@@ -603,6 +685,11 @@ typedef struct _hwcContext
     videoCacheInfo                  video_info[MAX_VIDEO_SOURCE];
     int                             vui_fd;
     int                             vui_hide;
+    /**
+     * enabled_log_types,
+     * 表征当前将输出的 log 的 types 的 bitwise.
+     * types_of_log 被定义为 HLLONE, ...
+     */
     int                             mLogL;
     int                             video_fmt;
     struct private_handle_t         fbhandle;
@@ -661,12 +748,33 @@ typedef struct _hwcContext
 
     /*****************policy *****************************/
     bool                           mComVop;
+    /**
+     * 某个 sf_client_layer 的 visible_region 是否有多个 rect.
+     */
     bool                           mMultiwindow;
+    /**
+     * 有 nv12_10 格式的 layer 待处理.
+     */
     bool                           mHasYuvTenBit;
     int                            mLastCompType;
     int                            mOneWinOpt;
+    /**
+     * bits_or, 用于标识当前 sf_client_layers 中哪些 layer 是 secure 的.
+     * 比如, bit_0 用于标识 在 hwc_layer_list 中 index 为 0 的 layer 是否是 secure 的.
+     * "secure" 等价于 layer 的 usage 中 GRALLOC_USAGE_PROTECTED 有被置位.
+     */
     unsigned int                   mSecureLayer;
 
+    /**
+     * 函数指针数组,
+     * index 是 hwc_overlay_policy 的 index,
+     * 对应的元素是 函数指针,
+     * 被指向的函数将用来判断 当前 hwc_overlay_policy 是否满足 当前待显示的内容(由参数指定) 的要求.
+     *      若满足 返回 0; 否则返回 -1.
+     *          .R : 逻辑上, 定义为布尔类型更好.
+     *              本成员的更好的名称是 'm_pfnsCouldPoilicyDisplayCurrentContents'.
+     *      caller 要在 第一参数中传入当前 hwc_context, 第二参数是 hwc_display_contents.
+     */
     int (*fun_policy[HWC_POLICY_NUM])(void * ,hwc_display_contents_1_t*);
 
     /*****************hdmi 3d detech*********************/
@@ -689,7 +797,7 @@ typedef struct _hwcContext
     threadPamaters                 mControlStereo;
     threadPamaters                 mRgaBlitAlloc;
 
-#if G6110_SUPPORT_FBDC
+#if G6110_SUPPORT_FBDC || USE_AFBC_LAYER
     /*****************fbdc*****************************/
     bool                           bFbdc;       //if contain fbdc layer,set it to true.
 #endif
@@ -740,6 +848,9 @@ typedef struct _hwcContext
 
 }
 hwcContext;
+
+typedef hwcContext hwc_context_t;
+
 #define rkmALIGN(n, align) \
 ( \
     ((n) + ((align) - 1)) & ~((align) - 1) \

@@ -9,8 +9,10 @@
 */
 
 // #define LOG_TAG "hwc"
-// #define ENABLE_DEBUG_LOG
-// #define ENABLE_VERBOSE_LOG
+/*
+#define ENABLE_DEBUG_LOG
+#define ENABLE_VERBOSE_LOG
+*/
 #include <log/custom_log.h>
 
 #include <EGL/egl.h>
@@ -42,6 +44,8 @@
 #include <utils/Trace.h>
 
 #include "rk_hwc_debug_utils.h"
+#include "rk_hwc_debug_mark_time.h"
+#include "rk_hwc_debug_hack_wins_cfg.h"
 
 /*---------------------------------------------------------------------------*/
 
@@ -131,6 +135,157 @@ inline static bool isAfbcInternalFormat(uint64_t internal_format)
 {
     return (internal_format & GRALLOC_ARM_INTFMT_AFBC);
 }
+
+/**
+ * .DOC : restrictions_for_afbc_area_par_from_vop
+ *      from HJC :
+ *      3399 中, 因为目前支持的 afbc_format 的 tile 大小为 16x8 pixel,
+ *      rk_fb_dev 对 ioctl RK_FBIOSET_CONFIG_DONE 的参数中用于显示 afbc_layer 的 rk_fb_area_par,
+ *      有如下要求 :
+ *          x_offset 必须是 0,
+ *          y_offset 必须是 0,
+ *          xact 必须是 16 的整数倍.
+ *          yact 必须是 8 的整数倍,
+ *          xvir 必须是 16 的整数倍,
+ *          yvir 必须是 8 的整数倍,
+ *      但是目前实测
+ *          yact 必须是 16 的整数倍, 否则会触发 intr_post_buf_empty 或显示抖动,
+ *              测试代码见 test_y_size_and_the_same_y_act_of_afbc_area(),
+ *          ypos 大于 8 之后, 会触发 intr_post_buf_empty,
+ *              测试代码见 test_y_pos_of_afbc_area().
+ */
+
+/**
+ * VoP 是否支持当前传入的 用于显示 afbc_layer 的 area_parameter.
+ */
+bool can_vop_support_area_parameter_of_afbc_layer(struct rk_fb_area_par* pPar)
+{
+    if ( 0 != pPar->x_offset )
+    {
+        D("unsupported x_offset : %d", pPar->x_offset);
+        return false;
+    }
+    else if ( 0 != pPar->y_offset )
+    {
+        D("unsupported y_offset : %d", pPar->y_offset);
+        return false;
+    }
+    else if ( !IS_ALIGN(pPar->xact, 16) )
+    {
+        D("unsupported xact : %d", pPar->xact);
+        return false;
+    }
+    else if ( !IS_ALIGN(pPar->yact, 8) )
+    {
+        D("unsupported yact : %d", pPar->yact);
+        return false;
+    }
+    else if ( !IS_ALIGN(pPar->xvir, 16) )
+    {
+        D("unsupported xvir: %d", pPar->xvir);
+        return false;
+    }
+    else if ( !IS_ALIGN(pPar->yvir, 8) )
+    {
+        D("unsupported yvir: %d", pPar->yvir);
+        return false;
+    }
+    /*-------------------------------------------------------*/
+    else if ( !IS_ALIGN(pPar->yact, 16) )
+    {
+        D("unsupported yact : %d", pPar->yact);
+        return false;
+    }
+    /*-------------------------------------------------------*/
+    /*
+    else if ( 0 != pPar->xpos)
+    {
+        D("unsupported xpos : %d", pPar->xpos);
+        return false;
+    }
+    */
+    else if ( pPar->ypos > 8 )
+    {
+        D("unsupported ypos : %d", pPar->ypos);
+        return false;
+    }
+    /*-------------------------------------------------------*/
+    else
+    {
+        return true;
+    }
+}
+
+/**
+ * 根据给定的 afbc_internal_format 设置对应的 rk_fb_area_par 实例中的相关 field.
+ */
+static void set_rk_fb_area_par_from_afbc_internal_format(struct rk_fb_area_par* pAreaPar,
+                                                         uint64_t internal_format)
+{
+    uint64_t index_of_arm_hal_format = internal_format & GRALLOC_ARM_INTFMT_FMT_MASK;
+
+    switch (  index_of_arm_hal_format )
+    {
+        case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGBA_8888:
+            // D("to set afbc_format for rgba_8888.");
+            // pAreaPar->fbdc_data_format =  FBDC_ARGB_888;
+            pAreaPar->fbdc_data_format = 0x27;
+            pAreaPar->fbdc_en = 1;
+            pAreaPar->fbdc_cor_en = 0;
+
+            pAreaPar->data_format = 0x27;
+            break;
+
+        case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGBX_8888:
+            // D("to set afbc_format for rgbx_8888.");
+            // pAreaPar->fbdc_data_format = FBDC_RGBX_888;
+            // pAreaPar->fbdc_data_format = 0x28;
+            pAreaPar->fbdc_data_format = 0x27;
+            pAreaPar->fbdc_en = 1;
+            pAreaPar->fbdc_cor_en = 0;
+
+            pAreaPar->data_format = 0x27; // 颜色 OK.
+            // pAreaPar->data_format = 0x28;
+            // 0x30 : 显示剧烈异常.
+            break;
+
+        case GRALLOC_ARM_HAL_FORMAT_INDEXED_BGRA_8888:
+            // D("to set afbc_format for bgra_8888.");
+            // pAreaPar->fbdc_data_format = FBDC_ABGR_888;
+            pAreaPar->fbdc_data_format = 0x29;
+            pAreaPar->fbdc_en = 1;
+            pAreaPar->fbdc_cor_en = 0;
+
+            pAreaPar->data_format = 0x29;
+            break;
+
+        /*
+        case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGB_888:
+            D("to set afbc_format for rgb_888.");
+            pAreaPar->fbdc_data_format = 0x28;
+            pAreaPar->fbdc_en = 1;
+            pAreaPar->fbdc_cor_en = 0;
+
+            pAreaPar->data_format = 0x28;
+            break;
+        */
+
+        /*
+        case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGB_565:
+            D("to set afbc_format for rgb_565.");
+            pAreaPar->fbdc_data_format = 0x26;
+            pAreaPar->fbdc_en = 1;
+            pAreaPar->fbdc_cor_en = 0;
+
+            pAreaPar->data_format = 0x26;
+            break;
+        */
+
+        default:
+            E("unsupported index_of_arm_hal_format : 0x%llx.", index_of_arm_hal_format);
+            break;
+    }
+}
 #endif
 
 /*---------------------------------------------------------------------------*/
@@ -138,7 +293,7 @@ inline static bool isAfbcInternalFormat(uint64_t internal_format)
 /**
  * 从 hal_pixel_format 得到对应的 rk_vop_pixel_format.
  *
- * .trick : 因为历史原因, userspace(graphics.h) 和 vop_driver 中对 rk_ext_hal_pixel_format 定义的常数标识符 value 不同.
+ * .trick : 因为历史原因, userspace(graphics.h) 和 rk_fb_dev 中对 rk_ext_hal_pixel_format 定义的常数标识符 value 不同.
  *          参见 kernel/include/linux/rk_fb.h.
  */
 int hwChangeFormatandroidL(IN int fmt)
@@ -307,9 +462,11 @@ int HALPixelFormatSetCompression(int iFormat, int iCompression)
 			return iFormat;
 	}
 }
+#endif  // #if G6110_SUPPORT_FBDC
 
-#endif
-
+/**
+ * 将 *list 中, 所有 sf_client_layer 的 composition_type 设置为 'HWC_NODRAW'.
+ */
 void hwc_list_nodraw(hwc_display_contents_1_t  *list)
 {
     if (list == NULL)
@@ -365,6 +522,10 @@ int hwc_init_version()
     return 0;
 }
 
+/**
+ * 根据特定 property 的 value 设置 'mLogL'.
+ * 在 prepare() 中被调用.
+ */
 int init_log_level()
 {
     hwcContext * ctxp = _contextAnchor;
@@ -374,6 +535,9 @@ int init_log_level()
     return 0;
 }
 
+/**
+ * 返回 'in' 指定的 log_type 是否应该被输出.
+ */
 bool log(int in)
 {
     hwcContext * ctxp = _contextAnchor;
@@ -381,7 +545,7 @@ bool log(int in)
 }
 
 //return property value of pcProperty
-static int hwc_get_int_property(const char* pcProperty,const char* default_value)
+int hwc_get_int_property(const char* pcProperty,const char* default_value)
 {
     char value[PROPERTY_VALUE_MAX];
     int new_value = 0;
@@ -466,6 +630,7 @@ void hwc_sync(hwc_display_contents_1_t  *list)
 		}
 		ALOGV("acquireFenceFd=%d,name=%s",list->hwLayers[i].acquireFenceFd,list->hwLayers[i].LayerName);
 	}
+    V("all the acquire_fences are signalled, or time out.");
 #else
 	for (int i=0; i< (int)list->numHwLayers; i++)
 	{
@@ -1467,6 +1632,12 @@ int initLayerCompositionType(hwcContext * Context,hwc_display_contents_1_t * lis
     return 0;
 }
 
+/**
+ * 处理 'list' 中的信息, 并存储在 'Context' 的 layers_info_manager 中.
+ * @return
+ *      0, 成功.
+ *      -1, layers_info_manager 没有足够的空间存储 'list' 中的信息.
+ */
 int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
 {
     size_t i,j;
@@ -1480,13 +1651,15 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
     bool NeedScale = false;
     bool NeedFullScreen = false;
     char value[PROPERTY_VALUE_MAX];
+
     property_get("persist.sys.video.cvrs", value, "false");
     NeedScale = !strcmp(value,"true");
     property_get("persist.sys.video.cvrs.fs", value, "false");
     NeedFullScreen = !strcmp(value,"true");
 #endif
+
     for (i = 0; i < (list->numHwLayers - 1) ; i++) {
-        hwc_layer_1_t * layer = &list->hwLayers[i];
+        hwc_layer_1_t * layer = &list->hwLayers[i]; // current_layer.
 
         if (!layer)
             continue;
@@ -1510,9 +1683,9 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
 
     for (i = 0,j=0; i < (list->numHwLayers - 1) ; i++,j++){
         hwc_layer_1_t * layer = &list->hwLayers[i];
-        hwc_region_t * Region = &layer->visibleRegionScreen;
-        hwc_rect_t * SrcRect = &layer->sourceCrop;
-        hwc_rect_t tmpSourceCrop;
+        hwc_region_t * Region = &layer->visibleRegionScreen; // visible_region_in_screen_space
+        hwc_rect_t * SrcRect = &layer->sourceCrop; // src_rect
+        hwc_rect_t tmpSourceCrop; // source_crop_for_dim_layer.
 
         if (Context->mHasYuvTenBit && i == 0 && !strcmp(layer->LayerName,"DimLayer"))
             continue;
@@ -1524,21 +1697,22 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             tmpSourceCrop.bottom = layer->displayFrame.bottom;
             SrcRect = &tmpSourceCrop;
         }
-        hwc_rect_t * DstRect = &layer->displayFrame;
+
+        hwc_rect_t * DstRect = &layer->displayFrame; // display_frame, dest_rect_in_screen_space
         bool IsBottom = !strcmp(BOTTOM_LAYER_NAME,layer->LayerName);
         bool IsTop = !strcmp(TOP_LAYER_NAME,layer->LayerName);
-        struct private_handle_t* SrcHnd = (struct private_handle_t *) layer->handle;
-        float hfactor;
+        struct private_handle_t* SrcHnd = (struct private_handle_t *) layer->handle; // handle_of_current_buffer.
+        float hfactor; // 水平方向上, src_rect / dest_rect 的比例.
         float vfactor;
         hwcRECT dstRects[16];
         unsigned int m = 0;
-        bool is_stretch = 0;
-        hwc_rect_t const * rects = Region->rects;
-        hwc_rect_t  rect_merge;
+        bool is_stretch = 0; // 为显示当前 layer, 是否需要缩放.
+        hwc_rect_t const * rects = Region->rects; // rects_of_visible_region
+        hwc_rect_t  rect_merge; // dest_rect 和 逐个 rect_of_visible_region 交集的 并集.
         bool haveStartwin = false;
-        bool trsfrmbyrga = false;
-        int glesPixels = 0;
-        int overlayPixels = 0;
+        bool trsfrmbyrga = false; // will_transform_by_rga.
+        int glesPixels = 0; // screen 上, visible_region 和 display_frame 交集的 像素个数.
+        int overlayPixels = 0; // display_frame 的 像素个数.
 #if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
         int d_w = 0;  //external weight & height
         int d_h = 0;
@@ -1587,6 +1761,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             ALOGD("Overflow [%d] >max=%d",m+j,MaxZones);
             return -1;
         }
+
         if((layer->transform == HWC_TRANSFORM_ROT_90)
             ||(layer->transform == HWC_TRANSFORM_ROT_270)){
             hfactor = (float) (SrcRect->bottom - SrcRect->top)
@@ -1601,13 +1776,15 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
                     / (DstRect->bottom - DstRect->top);
         }
         if(hfactor >= 8.0 || vfactor >= 8.0 || hfactor <= 0.125 || vfactor <= 0.125  ){
-            Context->zone_manager.zone_info[j].scale_err = true;
+            Context->zone_manager.zone_info[j].scale_err = true; // .R : 无法通过 VoP 缩放
             ALOGD_IF(log(HLLSIX),"stretch[%f,%f]not support!",hfactor,vfactor);
         } 
         is_stretch = (hfactor != 1.0) || (vfactor != 1.0);
+
         if(Context == _contextAnchor1) {
             is_stretch = is_stretch || _contextAnchor->mHdmiSI.NeedReDst;
         }
+
 #if ONLY_USE_ONE_VOP
 #ifdef RK3288_BOX
         if(_contextAnchor->mLcdcNum == 1)
@@ -1639,7 +1816,8 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         int right_max=0;
         int bottom_max=0;
         int isLarge = 0;
-        int srcw,srch;    
+        int srcw,srch;    // width and height of source in pixel.
+
         if(rects){
              left_min = rects[0].left; 
              top_min  = rects[0].top;
@@ -1653,13 +1831,19 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             int r_bottom;
            
             r_left   = hwcMAX(DstRect->left,   rects[r].left);
+                // dest_rect_in_screen_space 和 current_rect_of_visible_region, 离开原点较远(数值较大) 的 left 是有效的 left.
             left_min = hwcMIN(r_left,left_min);
+                // 用于计算 dest_rect 和 逐个 rect_of_visible_region 交集的 并集.
+
             r_top    = hwcMAX(DstRect->top,    rects[r].top);
             top_min  = hwcMIN(r_top,top_min);
+
             r_right    = hwcMIN(DstRect->right,  rects[r].right);
             right_max  = hwcMAX(r_right,right_max);
+
             r_bottom = hwcMIN(DstRect->bottom, rects[r].bottom);
             bottom_max  = hwcMAX(r_bottom,bottom_max);
+
             glesPixels += (r_right-r_left)*(r_bottom-r_top);
         }
         rect_merge.left = left_min;
@@ -1676,18 +1860,20 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             ALOGD_IF(log(HLLTHR),"Is in pendraw opt");
             Context->mMultiwindow = true;
         }
-        overlayPixels = (DstRect->right-DstRect->left)*(DstRect->bottom-DstRect->top);
+
+        overlayPixels = (DstRect->right - DstRect->left) * (DstRect->bottom - DstRect->top);
         Context->zone_manager.zone_info[j].glesPixels = glesPixels;
         Context->zone_manager.zone_info[j].overlayPixels = overlayPixels;
-        overlayPixels = (SrcRect->right-SrcRect->left)*(SrcRect->bottom-SrcRect->top);
-        glesPixels = int(1.0 * glesPixels /Context->zone_manager.zone_info[j].overlayPixels * overlayPixels);
+
+        overlayPixels = (SrcRect->right - SrcRect->left) * (SrcRect->bottom - SrcRect->top);
+        glesPixels = int(1.0 * glesPixels / Context->zone_manager.zone_info[j].overlayPixels * overlayPixels);
         Context->zone_manager.zone_info[j].glesPixels += glesPixels;
-        Context->zone_manager.zone_info[j].overlayPixels += overlayPixels;
+        Context->zone_manager.zone_info[j].overlayPixels += overlayPixels; // .R : 为后续的策略优化预留.
 
         Context->zone_manager.zone_info[j].skipLayer = layer->flags & HWC_SKIP_LAYER;
 
-        unsigned const char* pBuffer = (unsigned const char*)DstRect;
-        unsigned int crc32 = createCrc32(0xFFFFFFFF,pBuffer,sizeof(hwc_rect_t));
+        unsigned const char* pBuffer = (unsigned const char*)DstRect; // ptr_to_display_frame
+        unsigned int crc32 = createCrc32(0xFFFFFFFF,pBuffer,sizeof(hwc_rect_t)); // crc32_of_rect_instance_of_display_frame
         if(false) {
             pBuffer = (unsigned const char*)rects;
             crc32 = createCrc32(crc32,pBuffer,sizeof(hwc_rect_t)*Region->numRects);
@@ -1730,7 +1916,8 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             dstRects[0].top    = hwcMAX(DstRect->top,    rect_merge.top);
             dstRects[0].right  = hwcMIN(DstRect->right,  rect_merge.right);
             dstRects[0].bottom = hwcMIN(DstRect->bottom, rect_merge.bottom);
-        }        
+        }
+
         /* Check dest area. */
         if ((dstRects[m].right <= dstRects[m].left) 
             ||  (dstRects[m].bottom <= dstRects[m].top)){
@@ -1748,6 +1935,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
 
         Context->zone_manager.zone_info[j].zone_alpha = (layer->blending) >> 16;
         Context->zone_manager.zone_info[j].is_stretch = is_stretch;
+
         if(SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO
             || SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12){
 #if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
@@ -1756,6 +1944,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             }
 #endif
         }
+
     	Context->zone_manager.zone_info[j].hfactor = hfactor;;
         Context->zone_manager.zone_info[j].zone_index = j;
         Context->zone_manager.zone_info[j].layer_index = i;
@@ -1795,7 +1984,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         Context->zone_manager.zone_info[j].pRelFenceFd = &(layer->releaseFenceFd);
 #endif
 
-        bool supportPlatform = false;
+        bool supportPlatform = false; // .R : 当前平台的 RGA 是否支持 nv12_10.
         supportPlatform = supportPlatform || Context->isRk3366;
         supportPlatform = supportPlatform || Context->isRk3399;
 
@@ -2089,8 +2278,9 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
                         Context->zone_manager.zone_info[j].LayerName,
                         Context->zone_manager.zone_info[j].layer_fd);
 		} else {
-            Context->zone_manager.zone_info[j].src_rect.left   = hwcMAX ((SrcRect->left \
-            - (int) ((DstRect->left   - dstRects[0].left)   * hfactor)),0);
+            Context->zone_manager.zone_info[j].src_rect.left = 
+                hwcMAX( (SrcRect->left - (int)( (DstRect->left - dstRects[0].left) * hfactor) ),
+                       0);
             Context->zone_manager.zone_info[j].src_rect.top    = hwcMAX ((SrcRect->top \
             - (int) ((DstRect->top    - dstRects[0].top)    * vfactor)),0);
 
@@ -2114,7 +2304,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             Context->zone_manager.zone_info[j].format = SrcHnd->format;
 
 #ifdef USE_AFBC_LAYER
-            D("to set internal_format to 0x%llx.", SrcHnd->internal_format);
+            // V("to set internal_format to 0x%llx.", SrcHnd->internal_format);
             Context->zone_manager.zone_info[j].internal_format = SrcHnd->internal_format;
 #endif
 
@@ -2135,31 +2325,50 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
                     Context->zone_manager.zone_info[j].src_rect.bottom - Context->zone_manager.zone_info[j].src_rect.bottom%2;                
             }
         }    
+
         srcw = Context->zone_manager.zone_info[j].src_rect.right - \
                 Context->zone_manager.zone_info[j].src_rect.left;
         srch = Context->zone_manager.zone_info[j].src_rect.bottom -  \
                 Context->zone_manager.zone_info[j].src_rect.top;
-        int bpp = android::bytesPerPixel(Context->zone_manager.zone_info[j].format);
+
+        int bpp = android::bytesPerPixel(Context->zone_manager.zone_info[j].format);    // bytes_per_pixel of current_layer.
+
         if(Context->zone_manager.zone_info[j].format == HAL_PIXEL_FORMAT_YCrCb_NV12
             || Context->zone_manager.zone_info[j].format == HAL_PIXEL_FORMAT_YCrCb_NV12_10
             || Context->zone_manager.zone_info[j].format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO
             || haveStartwin)
+        {
             bpp = 2;
+        }
 #if G6110_SUPPORT_FBDC
         else if(Context->zone_manager.zone_info[j].format == HAL_PIXEL_FORMAT_BGRX_8888)
+        {
             bpp = 4;
+        }
         else if(HALPixelFormatGetCompression(Context->zone_manager.zone_info[j].format) != HAL_FB_COMPRESSION_NONE)
         {
             bpp = 4;
             Context->bFbdc = true;
         }
 #endif
-        else
+#if USE_AFBC_LAYER
+        else if ( isAfbcInternalFormat(Context->zone_manager.zone_info[j].internal_format) )
+        {
             bpp = 4;
+            Context->bFbdc = true;
+        }
+#endif
+        else
+        {
+            bpp = 4;
+        }
 
         Context->zone_manager.zone_info[j].is_yuv = is_yuv(Context->zone_manager.zone_info[j].format);
         // ALOGD("haveStartwin=%d,bpp=%d",haveStartwin,bpp);
         Context->zone_manager.zone_info[j].size = srcw*srch*bpp;
+
+        /*-----------------------------------*/
+
         if(Context->zone_manager.zone_info[j].hfactor > 1.0 || Context->mIsMediaView)
             factor = 2;
         else
@@ -2183,10 +2392,15 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             layer->handle = NULL;
     }
     Context->zone_manager.zone_cnt = j;
+
     if(tsize)
         Context->zone_manager.bp_size = tsize / (1024 *1024) * 60 ;// MB
-    // query ddr is enough ,if dont enough back to gpu composer
+
+    // we will check whether ddr is enough,if not, back to gpu composer
     ALOGV("tsize=%dMB,Context->ddrFd=%d,RK_QUEDDR_FREQ",tsize,Context->ddrFd);
+
+    /*-------------------------------------------------------*/
+
     for(i=0;i<j;i++){
         ALOGD_IF(log(HLLONE),"Zone[%d]->layer[%d],"
             "[%d,%d,%d,%d] =>[%d,%d,%d,%d],"
@@ -2215,6 +2429,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             Context->zone_manager.zone_info[i].overlayPixels,
             Context->zone_manager.zone_info[i].LayerName);
     }
+
     return 0;
 }
 
@@ -3502,6 +3717,7 @@ int try_wins_dispatch_mix_up(void * ctx,hwc_display_contents_1_t * list)
         {
             int area_no = 0;
             int win_id = 0;
+
             ALOGD_IF(log(HLLFIV),"Zone[%d]->layer[%d],dispatched=%d,"
             "[%d,%d,%d,%d] =>[%d,%d,%d,%d],"
             "w_h_s_f[%d,%d,%d,%d],tr_rtr_bled[%d,%d,%d],"
@@ -3529,6 +3745,7 @@ int try_wins_dispatch_mix_up(void * ctx,hwc_display_contents_1_t * list)
             pzone_mag->zone_info[i].addr,
             pzone_mag->zone_info[i].acq_fence_fd,
             pzone_mag->zone_info[i].LayerName);
+
             switch(pzone_mag->zone_info[i].dispatched) {
                 case win0:
                     bpvinfo.vopinfo[0].state = 1;
@@ -6971,7 +7188,7 @@ int try_wins_dispatch_skip(void * ctx,hwc_display_contents_1_t * list)
     return -1;
 }
 
-#if G6110_SUPPORT_FBDC
+#if G6110_SUPPORT_FBDC || USE_AFBC_LAYER
 static int check_zone(hwcContext * Context)
 {
     ZoneManager* pzone_mag = &(Context->zone_manager);
@@ -7015,7 +7232,11 @@ static int check_zone(hwcContext * Context)
          }
 
         //Count layers which used fbdc
+#if G6110_SUPPORT_FBDC
         if(HALPixelFormatGetCompression(pzone_mag->zone_info[i].format) != HAL_FB_COMPRESSION_NONE
+#elif USE_AFBC_LAYER
+        if ( isAfbcInternalFormat(pzone_mag->zone_info[i].internal_format)
+#endif
             && win_id != old_win_id)
         {
             iCountFBDC++;
@@ -7297,58 +7518,91 @@ _Dump(
 }
 #endif
 
+void dump_content_of_layers_to_file(hwc_display_contents_1_t* list)
+{
+    size_t i;
+    static int DumpSurfaceCount = 0;
+    size_t index_of_fb_target_layer = list->numHwLayers - 1;
+
+    D("to dump content of layers to files.");
+
+    // for (i = 0; list && (i < (list->numHwLayers - 1)); i++)
+    for ( i = 0; i < list->numHwLayers; i++ ) // 也 dump fb_target_layer.
+    {
+        hwc_layer_1_t const * l = &list->hwLayers[i];
+
+        if(l->flags & HWC_SKIP_LAYER)
+        {
+            LOGI("layer %p skipped", l);
+        }
+        else
+        {
+            struct private_handle_t * handle_pre = (struct private_handle_t *) l->handle;
+            int32_t SrcStride ;
+            FILE * pfile = NULL;
+            char layername[100] ;   // name_of_dump_file_of_current_layer.
+
+            if( handle_pre == NULL || handle_pre->format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO)
+                continue;
+
+            SrcStride = hwcGetBytePerPixelFromAndroidFromat(handle_pre->format);
+            memset(layername,0,sizeof(layername));
+            system("mkdir /data/dump/ && chmod /data/dump/ 777 ");
+
+            /* 若当前是 sf_client_layer, ... */
+            if ( i < index_of_fb_target_layer )
+            {
+                sprintf(layername,
+                    "/data/dump/dmlayer%d_%d_%d_%d.bin",
+                    DumpSurfaceCount,
+                    handle_pre->stride,
+                    handle_pre->height,
+                    SrcStride);
+            }
+            /* 否则, 即当前是 fb_target_layer, ... */
+            else
+            {
+                sprintf(layername,
+                    "/data/dump/dmlayer%d_ftl_%d_%d_%d.bin", // ftl : fb_target_layer.
+                    DumpSurfaceCount,
+                    handle_pre->stride,
+                    handle_pre->height,
+                    SrcStride);
+            }
+
+            DumpSurfaceCount ++;
+            pfile = fopen(layername,"wb");
+            if(pfile)
+            {
+#ifdef GPU_G6110
+                fwrite((const void *)(handle_pre->pvBase),(size_t)(handle_pre->size),1,pfile);
+#else
+                D("size of buf of layer '%zu' : %d", i, handle_pre->size);
+                // fwrite( (const void *)(handle_pre->base),(size_t)(SrcStride * handle_pre->stride*handle_pre->height),1,pfile);
+                fwrite( (const void *)(handle_pre->base),
+                        (size_t)(handle_pre->size),
+                        1,
+                        pfile);
+#endif
+                fclose(pfile);
+                LOGI(" dump surface layername %s,w:%d,h:%d,formatsize :%d",layername,handle_pre->width,handle_pre->height,SrcStride);
+            }
+        }
+    }
+}
+
 #if hwcDumpSurface
 static void
 _DumpSurface(
     hwc_display_contents_1_t* list
     )
 {
-    size_t i;
-    static int DumpSurfaceCount = 0;
-
     char pro_value[PROPERTY_VALUE_MAX];
     property_get("sys.dump",pro_value,0);
     //LOGI(" sys.dump value :%s",pro_value);
     if(!strcmp(pro_value,"true"))
     {
-        for (i = 0; list && (i < (list->numHwLayers - 1)); i++)
-        {
-            hwc_layer_1_t const * l = &list->hwLayers[i];
-
-            if(l->flags & HWC_SKIP_LAYER)
-            {
-                LOGI("layer %p skipped", l);
-            }
-            else
-            {
-                struct private_handle_t * handle_pre = (struct private_handle_t *) l->handle;
-                int32_t SrcStride ;
-                FILE * pfile = NULL;
-                char layername[100] ;
-
-                if( handle_pre == NULL || handle_pre->format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO)
-                    continue;
-
-                SrcStride = hwcGetBytePerPixelFromAndroidFromat(handle_pre->format);
-
-                memset(layername,0,sizeof(layername));
-                system("mkdir /data/dump/ && chmod /data/dump/ 777 ");
-                //mkdir( "/data/dump/",777);
-                sprintf(layername,"/data/dump/dmlayer%d_%d_%d_%d.bin",DumpSurfaceCount,handle_pre->stride,handle_pre->height,SrcStride);
-                DumpSurfaceCount ++;
-                pfile = fopen(layername,"wb");
-                if(pfile)
-                {
-#ifdef GPU_G6110
-                    fwrite((const void *)(handle_pre->pvBase),(size_t)(handle_pre->size),1,pfile);
-#else
-                    fwrite((const void *)(handle_pre->base),(size_t)(SrcStride * handle_pre->stride*handle_pre->height),1,pfile);
-#endif
-                    fclose(pfile);
-                    LOGI(" dump surface layername %s,w:%d,h:%d,formatsize :%d",layername,handle_pre->width,handle_pre->height,SrcStride);
-                }
-            }
-        }
+        dump_content_of_layers_to_file(list);
     }
     property_set("sys.dump","false");
 }
@@ -8772,7 +9026,12 @@ int hwc_add_write_back(hwcContext * context, buffer_handle_t *hnd,
 #endif
 }
 
-
+/**
+ * 在 'ctx' 下, 检查 data_for_rk_fb_ioctl_config_done 是否正确.
+ * @return
+ *      true, 没有问题.
+ *      false, 'fb_info' 有问题,
+ */
 bool hwc_check_cfg(hwcContext * ctx,struct rk_fb_win_cfg_data fb_info)
 {
     bool ret = true;
@@ -8840,20 +9099,36 @@ bool hwc_check_cfg(hwcContext * ctx,struct rk_fb_win_cfg_data fb_info)
     return ret;
 }
 
+/**
+ * 从 hwc_context 和 hwc_display_contents, 获取 data_for_rk_fb_ioctl_config_done 等信息, 保存到 '*hfi' 中.
+ * rk_hwc 对 prepare 和 set 的实现中, 都会调用本函数.
+ *
+ * @param mix_prepare
+ *      true, 当前 caller 在 prepare 流程中.
+ *      false, 当前 caller 在 set 流程中.
+ * @param mix_flag
+ *      表征当前 hwc_context 的 composition_mode :
+ *          0, HWC_LCDC
+ *          1, HWC_MIX
+ *          2, HWC_MIX_V2
+ *
+ * @return
+ *      若成功, 返回 0.
+ *      否则, 返回 -1.
+ */
 int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct hwc_fb_info *hfi,int mix_flag,bool mix_prepare)
 {
     ZoneManager* pzone_mag = &(context->zone_manager);
-    hwcContext * ctxp = _contextAnchor;
-    int dpyID = 0;
     int i,j;
     int z_order = 0;
-    int win_no = 0;
-    bool isRealyMix = mix_flag;
+    int win_no = 0; // 预期使用到 vop_win 的数量.
+    bool isRealyMix = mix_flag; // is_in_real_mix_mode, 只有 HWC_MIX, HWC_MIX_V2 是真正的 mix_mode, HWC_LCDC 不是.
     int is_spewin = is_special_wins(context);
     struct rk_fb_win_cfg_data fb_info;
     int comType = pzone_mag->mCmpType;
 
-    dpyID = (ctxp == context) ? 0 : 1;
+    /*-------------------------------------------------------*/
+
     memset((void*)&fb_info,0,sizeof(fb_info));
     fb_info.ret_fence_fd = -1;
     for(i=0;i<RK_MAX_BUF_NUM;i++) {
@@ -8864,6 +9139,7 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
     if(mix_flag == 1 && !context->mHdmiSI.mix_up){
         z_order ++;
     }
+
     for(i=0;i<pzone_mag->zone_cnt;i++){
         hwc_rect_t * psrc_rect = &(pzone_mag->zone_info[i].src_rect);
         hwc_rect_t * pdisp_rect = &(pzone_mag->zone_info[i].disp_rect);
@@ -8989,6 +9265,7 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
     }
 #endif
 
+        /* 若将只 使用一个 vop_win, 且 使用 lcdc_overlay_mode, 则... */
         if(win_no ==1 && !mix_flag)         {
             if(raw_format ==  HAL_PIXEL_FORMAT_RGBA_8888){
                 fb_info.win_par[win_no-1].area_par[area_no].data_format = HAL_PIXEL_FORMAT_RGBX_8888;
@@ -8998,6 +9275,21 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
         }else{
             fb_info.win_par[win_no-1].area_par[area_no].data_format =  raw_format;
         }
+
+#ifdef USE_AFBC_LAYER
+        {
+            uint64_t internal_format = pzone_mag->zone_info[i].internal_format;
+            // V("internal_format of zone_%d: 0x%llx.", i, internal_format);
+
+            if ( isAfbcInternalFormat(internal_format) )
+            {
+                struct rk_fb_area_par* pAreaPar = &(fb_info.win_par[win_no - 1].area_par[area_no] );
+
+                set_rk_fb_area_par_from_afbc_internal_format(pAreaPar, internal_format);
+            }
+        }
+#endif
+
         fb_info.win_par[win_no-1].win_id = win_id;
         fb_info.win_par[win_no-1].alpha_mode = AB_SRC_OVER;
         fb_info.win_par[win_no-1].g_alpha_val =  pzone_mag->zone_info[i].zone_alpha;
@@ -9006,6 +9298,7 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
                         pzone_mag->zone_info[i].direct_fd ? \
                         pzone_mag->zone_info[i].direct_fd: pzone_mag->zone_info[i].layer_fd;     
         fb_info.win_par[win_no-1].area_par[area_no].phy_addr = pzone_mag->zone_info[i].addr;
+
 #if USE_HWC_FENCE
         if (context->isRk3399)
             fb_info.win_par[win_no-1].area_par[area_no].acq_fence_fd = pzone_mag->zone_info[i].acq_fence_fd;
@@ -9014,19 +9307,23 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
 #else
         fb_info.win_par[win_no-1].area_par[area_no].acq_fence_fd = -1;
 #endif
+
         fb_info.win_par[win_no-1].area_par[area_no].x_offset = hwcMAX(psrc_rect->left, 0);
         fb_info.win_par[win_no-1].area_par[area_no].y_offset = hwcMAX(psrc_rect->top, 0);
         fb_info.win_par[win_no-1].area_par[area_no].xpos =  hwcMAX(pdisp_rect->left, 0);
         fb_info.win_par[win_no-1].area_par[area_no].ypos = hwcMAX(pdisp_rect->top , 0);
         fb_info.win_par[win_no-1].area_par[area_no].xsize = pdisp_rect->right - pdisp_rect->left;
         fb_info.win_par[win_no-1].area_par[area_no].ysize = pdisp_rect->bottom - pdisp_rect->top;
+
         hfi->pRelFenceFd[i] = pzone_mag->zone_info[i].pRelFenceFd;
         strcpy(hfi->LayerName[i],pzone_mag->zone_info[i].LayerName);
+
         if(context->zone_manager.mCmpType == HWC_MIX_FPS) {
             if(pzone_mag->zone_info[i].alreadyStereo != 8) {
                 fb_info.win_par[win_no-1].area_par[area_no].reserved0 = HWCRFPS;
             }
         }
+
         if(pzone_mag->zone_info[i].transform == HWC_TRANSFORM_ROT_90
             || pzone_mag->zone_info[i].transform == HWC_TRANSFORM_ROT_270){
            
@@ -9047,45 +9344,6 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
             fb_info.win_par[win_no-1].area_par[area_no].xvir = pzone_mag->zone_info[i].stride;
             fb_info.win_par[win_no-1].area_par[area_no].yvir = pzone_mag->zone_info[i].height;
         }
-
-#ifdef USE_AFBC_LAYER
-        {
-            uint64_t internal_format = pzone_mag->zone_info[i].internal_format;
-            D("internal_format of zone_%d: 0x%llx.", i, internal_format);
-
-            if ( isAfbcInternalFormat(internal_format) )
-            {
-                uint64_t index_of_arm_hal_format = internal_format & GRALLOC_ARM_INTFMT_FMT_MASK;
-
-                switch (  index_of_arm_hal_format )
-                {
-                    case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGBA_8888:
-                        D("to set afbc_config for rgba_888.");
-                        // fb_info.win_par[win_no-1].area_par[area_no].fbdc_data_format = FBDC_ARGB_888;
-                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_data_format = 0x27;
-                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_en = 1;
-                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_cor_en = 0;
-
-                        fb_info.win_par[win_no-1].area_par[area_no].data_format = 0x27;
-                        break;
-
-                    case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGBX_8888:
-                        D("to set afbc_config for rgbx_888.");
-                        // fb_info.win_par[win_no-1].area_par[area_no].fbdc_data_format = FBDC_ARGB_888;
-                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_data_format = 0x27;
-                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_en = 1;
-                        fb_info.win_par[win_no-1].area_par[area_no].fbdc_cor_en = 0;
-
-                        fb_info.win_par[win_no-1].area_par[area_no].data_format = 0x27;
-                        break;
-
-                    default:
-                        E("unsupported index_of_arm_hal_format : 0x%llx.", index_of_arm_hal_format);
-                        break;
-                }
-            }
-        }
-#endif
 
 #if G6110_SUPPORT_FBDC
         //zxl: xact need 16bytes aligned and yact need 4bytes aligned in FBDC area.
@@ -9108,12 +9366,27 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
 
             if(!IS_ALIGN(fb_info.win_par[win_no-1].area_par[area_no].xact,16))
             {
-                fb_info.win_par[win_no-1].area_par[area_no].xact=ALIGN(fb_info.win_par[win_no-1].area_par[area_no].yact,16)-16;
+                fb_info.win_par[win_no-1].area_par[area_no].xact=ALIGN(fb_info.win_par[win_no-1].area_par[area_no].xact,16)-16;
             }
         }
 #endif
-    }    
 
+#if USE_AFBC_LAYER
+        int winId = win_no - 1;
+        int areaId = area_no;
+	    struct rk_fb_area_par* pAreaPar = &(fb_info.win_par[winId].area_par[areaId] );
+
+        /* 当前在 prepare 流程中, 且 当前 area 用于显示 afbc_layer, 则... */
+        if ( mix_prepare && (1 == pAreaPar->fbdc_en) )
+        {
+            if ( !can_vop_support_area_parameter_of_afbc_layer(pAreaPar) )
+            {
+                D("VoP can't support area_parameter of current afbc_layer, to return -1.");
+                return -1;
+            }
+        }
+#endif
+    }
 
 #ifndef GPU_G6110
     //win2 & win3 need sort by ypos (positive-order)
@@ -9218,7 +9491,8 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
     else
 #endif
         fb_info.wait_fs=0;  //not wait acquire fence temp(wait in hwc)
-#endif
+#endif // #if USE_HWC_FENCE
+
     if(comType == HWC_MIX_FPS) {
         isRealyMix = false;
         for(unsigned int k=0;k<list->numHwLayers - 1;k++) {
@@ -9228,15 +9502,18 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
             }
         }
     }
+
     //if primary the y_offset will be n times of height
-    if((mix_flag && isRealyMix)&& !mix_prepare){
+    if((mix_flag && isRealyMix)&& !mix_prepare){ // 若当前是 mix_mode, 且 在 set 流程中, 则...
         int numLayers = list->numHwLayers;
         int format = -1;
-        hwc_layer_1_t *fbLayer = &list->hwLayers[numLayers - 1];
+
+        hwc_layer_1_t *fbLayer = &list->hwLayers[numLayers - 1]; // fb_target_layer.
         if (!fbLayer){
             ALOGE("fbLayer=NULL");
             return -1;
         }
+
         struct private_handle_t*  handle = (struct private_handle_t*)fbLayer->handle;
         if (!handle){
             ALOGD_IF(log(HLLFOU),"hanndle=NULL at line %d",__LINE__);
@@ -9265,6 +9542,20 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
         ALOGV("mix_flag=%d,win_no =%d,z_order = %d",mix_flag,win_no,z_order);
         unsigned int offset = handle->offset;
         fb_info.win_par[win_no-1].area_par[0].data_format = format;
+#ifdef USE_AFBC_LAYER
+        D("to recover 'data_format' of buf of fb_target_layer, which was modified above.");
+        {
+            uint64_t internal_format = handle->internal_format;
+
+            if ( isAfbcInternalFormat(internal_format) )
+            {
+                struct rk_fb_area_par* pAreaPar = &(fb_info.win_par[win_no-1].area_par[0] );
+
+                set_rk_fb_area_par_from_afbc_internal_format(pAreaPar, internal_format);
+            }
+        }
+#endif
+
         if(context->mHdmiSI.mix_vh && mix_flag == 2){
             fb_info.win_par[win_no-1].win_id = 1;
         }else{
@@ -9280,6 +9571,7 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
             fb_info.win_par[win_no-1].z_order = 2;
         }
         fb_info.win_par[win_no-1].area_par[0].ion_fd = handle->share_fd;
+
 #if USE_HWC_FENCE
         if (context->isRk3399)
             fb_info.win_par[win_no-1].area_par[0].acq_fence_fd = fbLayer->acquireFenceFd;
@@ -9303,6 +9595,7 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
         if(comType == HWC_MIX_FPS) {
             fb_info.win_par[win_no-1].area_par[0].reserved0 = HWCRFPS;
         }
+
 #if USE_HWC_FENCE
 #if SYNC_IN_VIDEO
     if(context->mVideoMode && !context->mIsMediaView && !g_hdmi_mode)
@@ -9312,6 +9605,7 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
         fb_info.wait_fs=0;
 #endif
     }
+
     memcpy((void*)(&(hfi->fb_info)),(void*)&fb_info,sizeof(rk_fb_win_cfg_data));
     return 0;
 }
@@ -9449,11 +9743,17 @@ int hwc_pre_prepare(hwc_display_contents_1_t** displays, int flag)
     return 0;
 }
 
+/**
+ * 检查 当前的是否有 hwc_overlay_policy 能够输出 hwc_display_contents.
+ * @return
+ *      0, 有 hwc_overlay_policy 能够输出.
+ *      -1, 所有的 hwc_overlay_policy 都 "无法" 输出.
+ */
 int hwc_try_policy(hwcContext * context,hwc_display_contents_1_t * list,int dpyID)
 {
     int ret;
     for(int i = 0;i < HWC_POLICY_NUM;i++){
-#if G6110_SUPPORT_FBDC
+#if G6110_SUPPORT_FBDC || USE_AFBC_LAYER
         //zxl: if in mix mode and it has fbdc layer before,then go into GPU compose.
         if (i > HWC_HOR && context->bFbdc)
         {
@@ -9578,7 +9878,12 @@ static int set_gpu_freq_mode(int freq_mode)
 }
 #endif
 
-static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *list, int dpyID) 
+/**
+ * 对 primary_display 和 external_display 的 prepare() 实现.
+ * @param dpyID
+ *      标识当前的 display, 取值为 HWC_DISPLAY_PRIMARY 或 HWC_DISPLAY_EXTERNAL.
+ */
+static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *list, int dpyID)
 {
     ATRACE_CALL();
     size_t i;
@@ -9604,9 +9909,11 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     int transformcnt = 0;
     bool bIsMediaView=false;
     char gts_status[PROPERTY_VALUE_MAX];
-#if G6110_SUPPORT_FBDC
+#if G6110_SUPPORT_FBDC || USE_AFBC_LAYER
     int iFBDCCount= 0;
 #endif
+
+    /*-------------------------------------------------------*/
 
     /* Check layer list. */
     if (list == NULL || (list->numHwLayers  == 0)/*||!(list->flags & HWC_GEOMETRY_CHANGED)*/){
@@ -9636,6 +9943,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         hwc_list_nodraw(list);
         return 0;
     }
+
 #if GET_VPU_INTO_FROM_HEAD
     //init handles,reset bMatch
     for (i = 0; i < MAX_VIDEO_SOURCE; i++){
@@ -9644,8 +9952,11 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     }
 #endif
 
+    /*-------------------------------------------------------*/
+
     for (i = 0; i < (list->numHwLayers - 1); i++){
         struct private_handle_t * handle = (struct private_handle_t *) list->hwLayers[i].handle;
+
         if(handle && GPU_FORMAT == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO){
             video_cnt ++;
         }
@@ -9662,9 +9973,16 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         }
 #endif
 
+#if USE_AFBC_LAYER
+        if ( (handle != NULL) && isAfbcInternalFormat(handle->internal_format) )
+        {
+            iFBDCCount++;
+        }
+#endif
+
         if ( handle && !(is_hal_format_supported_by_vop(GPU_FORMAT) ) )
         {
-            ALOGD_IF(log(HLLFOU),"preset gles_composition for vop unsupported hal_format 0x%x.", GPU_FORMAT);
+            ALOGD_IF(log(HLLFOU),"Policy out:%s,%d: vop unsupported hal_format 0x%x.", __FUNCTION__, __LINE__, GPU_FORMAT);
             goto GpuComP;
         }
     }
@@ -9681,6 +9999,15 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         set_gpu_freq_mode(DVFS_MODE);
     }
 #endif
+#if USE_AFBC_LAYER
+    if ( iFBDCCount > 1 )
+    {
+        D("afbc_layer: more than 1 afbc_layer to display, we must rool back to gles_composition.");
+        goto GpuComP;
+    }
+#endif
+
+    /*-------------------------------------------------------*/
 
     context->mVideoMode = false;
     context->mVideoRotate = false;
@@ -9691,14 +10018,14 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     context->mNV12_VIDEO_VideoMode = false;
     context->mHasYuvTenBit = false;
     context->mSecureLayer = 0;
-
-#if G6110_SUPPORT_FBDC
+#if G6110_SUPPORT_FBDC || USE_AFBC_LAYER
     context->bFbdc = false;
 #endif
 #if OPTIMIZATION_FOR_DIMLAYER
     context->bHasDimLayer = false;
 #endif
     context->mtrsformcnt  = 0;
+
     for (i = 0; i < (list->numHwLayers - 1); i++){
         struct private_handle_t * handle = (struct private_handle_t *) list->hwLayers[i].handle;
 
@@ -9795,8 +10122,9 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
             || list->hwLayers[i].realtransform == HAL_TRANSFORM_ROT_270 ){
             vertical = true;
         }
-
     }
+
+    /*-------------------------------------------------------*/
 
 #if GET_VPU_INTO_FROM_HEAD
     for (i = 0; i < index; i++){
@@ -9828,12 +10156,16 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     }
 #endif
 
+    /*-------------------------------------------------------*/
+
+    // check number of video_layers.
     if(video_cnt >1){
         // more videos goto gpu cmp
         ALOGW("more2 video=%d goto GpuComP",video_cnt);
 		ALOGD_IF(log(HLLFOU),"Policy out [%d][%s]",__LINE__,__FUNCTION__);
         goto GpuComP;
     }          
+
     //Get gts staus,save in context->mGtsStatus
     hwc_get_string_property("sys.cts_gts.status","false",gts_status);
     if(!strcmp(gts_status,"true")){
@@ -9857,15 +10189,20 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         }
     }
 
+    /*-------------------------------------------------------*/
+
     if(hwc_get_int_property("sys.hwc.disable","0")== 1){
 		ALOGD_IF(log(HLLFOU),"Policy out [%d][%s]",__LINE__,__FUNCTION__);
         goto GpuComP;
 	}
+
     /* Roll back to FRAMEBUFFER if any layer can not be handled. */
     if (i != (list->numHwLayers - 1) || (list->numHwLayers==1) /*|| context->mtrsformcnt > 1*/){
 		ALOGD_IF(log(HLLFOU),"Policy out [%d][%s]",__LINE__,__FUNCTION__);
         goto GpuComP;
     }
+
+    /*-------------------------------------------------------*/
 
 #if !ENABLE_LCDC_IN_NV12_TRANSFORM
     if(!context->mGtsStatus){
@@ -9877,6 +10214,9 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     }
 #endif
 
+    /*-------------------------------------------------------*/
+
+    // alloc buffer for video_layers.
     for (i = 0; i < (list->numHwLayers - 1); i++){
         struct private_handle_t * handle = (struct private_handle_t *) list->hwLayers[i].handle;
         int stride_gr;
@@ -9930,7 +10270,6 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         }
     }
 
-
     // free video gralloc buffer in ui mode
     if(context->fd_video_bk[0] > 0 &&
         (/*!context->mVideoMode*/(
@@ -9957,6 +10296,8 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         }
     }
 
+    /*-------------------------------------------------------*/
+
     //G6110 FBDC: only let video case continue.
 #if 0
     if(!context->mVideoMode){
@@ -9964,6 +10305,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     }
 #endif
 
+    /* 处理 'list' 中的信息, 并存储在 'context' 的 layers_info_manager 中. */
     ret = collect_all_zones(context,list);
 
     //if (context->mHasYuvTenBit)
@@ -9977,8 +10319,9 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         goto GpuComP;
     }
 
-    //if(vertical == true)
+    // 检查 当前的是否有 hwc_overlay_policy 能够输出 hwc_display_contents.
     ret = hwc_try_policy(context,list,dpyID);
+
     if(list->hwLayers[context->mRgaTBI.index].compositionType == HWC_FRAMEBUFFER) {
         context->mNeedRgaTransform = false;
     } else if(context->mNeedRgaTransform) {
@@ -10007,10 +10350,13 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
             goto GpuComP;
         }
     }
+
+    /* 若 "没有" hwc_overlay_policy 能胜任输出, 则... */
     if(ret !=0 ){
 		ALOGD_IF(log(HLLFOU),"Policy out [%d][%s]",__LINE__,__FUNCTION__);
         goto GpuComP;
     }
+
     if(context->zone_manager.composter_mode != HWC_MIX) {
         for(i = 0;i<GPUDRAWCNT;i++){
             gmixinfo[mix_index].gpu_draw_fd[i] = 0;
@@ -10024,17 +10370,23 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
     }
 #endif
 
+    /*-------------------------------------------------------*/
+    // 至此, 某种 hwc_overlay_policy 可以用来显示当前 hwc_display_contents.
+
     //before composition:do overlay no error???
     struct hwc_fb_info hfi;
-    if(context->zone_manager.composter_mode == HWC_LCDC){
+    /* <从 hwc_context 和 hwc_display_contents, 获取 arg_for_rk_fb_ioctl_config_done 等信息.> */
+    if(context->zone_manager.composter_mode == HWC_LCDC){ // 这里包含了所有对应 hwc_overlay 的 composition_mode.
         err = hwc_collect_cfg(context,list,&hfi,0,true);
     }else if(context->zone_manager.composter_mode == HWC_MIX){
         err = hwc_collect_cfg(context,list,&hfi,1,true);
     }else if(context->zone_manager.composter_mode == HWC_MIX_V2){
         err = hwc_collect_cfg(context,list,&hfi,2,true);
     }
+    /* 若获取 "失败", 则... */
     if(err){
         ALOGD_IF(log(HLLFOU),"Policy out [%d][%s]",__LINE__,__FUNCTION__);
+        /* 退回到 gles_composition. */
         goto GpuComP;
     }else{
         if(!hwc_check_cfg(context,hfi.fb_info)){
@@ -10043,6 +10395,9 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
             goto GpuComP;
         }
     }
+
+    /*-------------------------------------------------------*/
+
 #if (defined(RK3368_BOX) || defined(RK3288_BOX))
 #ifdef RK3288_BOX
 	if(_contextAnchor->mLcdcNum == 1)
@@ -10054,6 +10409,7 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         }
     }
 #endif
+
     if(context->zone_manager.mCmpType == HWC_MIX_FPS) {
 #ifdef SUPPORT_STEREO
         for (unsigned int i = 0; i <(list->numHwLayers - 1); i++) {
@@ -10075,6 +10431,9 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
         goto GpuComP;
 
     return 0;
+
+    /*-------------------------------------------------------*/
+
 GpuComP   :
     for (i = 0; i < (list->numHwLayers - 1); i++) {
         hwc_layer_1_t * layer = &list->hwLayers[i];
@@ -10084,6 +10443,7 @@ GpuComP   :
     for(i = 0; i < GPUDRAWCNT; i++) {
         gmixinfo[mix_index].gpu_draw_fd[i] = 0;
     }
+
     context->mNeedRgaTransform = false;
 #if USE_SPECIAL_COMPOSER
     hwc_LcdcToGpu(list);         //Dont remove
@@ -10093,7 +10453,7 @@ GpuComP   :
     for (j = 0; j <(list->numHwLayers - 1); j++) {
         struct private_handle_t * handle = (struct private_handle_t *)list->hwLayers[j].handle;
 
-        list->hwLayers[j].compositionType = HWC_FRAMEBUFFER;                
+        list->hwLayers[j].compositionType = HWC_FRAMEBUFFER;
      
         if (handle && GPU_FORMAT==HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO) {
             ALOGV("rga_video_copybit,handle=%x,base=%x,w=%d,h=%d,video(w=%d,h=%d)",\
@@ -10107,8 +10467,8 @@ GpuComP   :
     context->zone_manager.composter_mode = HWC_FRAMEBUFFER;
     context->mLastCompType = -1;
     context->mOneWinOpt = false;
-    return 0;
 
+    return 0;
 }
 
 int
@@ -10135,7 +10495,7 @@ hwc_prepare(
     dump_prepare_info(displays,0);
 
 #if hwcDumpSurface
-    _DumpSurface(list);
+    // _DumpSurface(list);
 #endif
     void* zone_m = (void *)&context->zone_manager;
     memset(zone_m,0,sizeof(ZoneManager));
@@ -10181,6 +10541,8 @@ hwc_prepare(
         _Dump(list);
     }
 #endif
+
+    /*-------------------------------------------------------*/
 
     for (size_t i = 0; i < numDisplays; i++) {
         hwc_display_contents_1_t *list = displays[i];
@@ -10433,68 +10795,37 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
 
 #ifdef USE_AFBC_LAYER
         uint64_t internal_format = handle->internal_format;
-        D("internal_format of fb_target_layer : 0x%llx.", internal_format);
+        // D("internal_format of fb_target_layer : 0x%llx.", internal_format);
 
         if ( isAfbcInternalFormat(internal_format) )
         {
-            uint64_t index_of_arm_hal_format = internal_format & GRALLOC_ARM_INTFMT_FMT_MASK;
             struct rk_fb_area_par* pAreaPar = &(fb_info.win_par[0].area_par[0] );
 
-            switch (  index_of_arm_hal_format )
+            set_rk_fb_area_par_from_afbc_internal_format(pAreaPar, internal_format);
+        }
+
+        if( fb_info.win_par[0].area_par[0].fbdc_en == 1)
+        {
+            if (!IS_ALIGN(fb_info.win_par[0].area_par[0].xact,16) )
             {
-                case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGBA_8888:
-                    D("to set afbc_format for rgba_8888.");
-                    // pAreaPar->fbdc_data_format =  FBDC_ARGB_888;
-                    pAreaPar->fbdc_data_format = 0x27;
-                    pAreaPar->fbdc_en = 1;
-                    pAreaPar->fbdc_cor_en = 0;
+                fb_info.win_par[0].area_par[0].xact = rkmALIGN(fb_info.win_par[0].area_par[0].xact,16) - 16;
+            }
+            if (!IS_ALIGN(fb_info.win_par[0].area_par[0].yact,4) )
+            {
+                fb_info.win_par[0].area_par[0].yact = rkmALIGN(fb_info.win_par[0].area_par[0].yact,4) - 4;
+            }
 
-                    pAreaPar->data_format = 0x27;
-                    break;
-
-                case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGBX_8888:
-                    D("to set afbc_format for rgbx_8888.");
-                    // pAreaPar->fbdc_data_format =  FBDC_ARGB_888;
-                    pAreaPar->fbdc_data_format = 0x27;
-                    pAreaPar->fbdc_en = 1;
-                    pAreaPar->fbdc_cor_en = 0;
-
-                    pAreaPar->data_format = 0x27;
-                    break;
-                case GRALLOC_ARM_HAL_FORMAT_INDEXED_BGRA_8888:
-                    D("to set afbc_format for bgra_8888.");
-                    // pAreaPar->fbdc_data_format =  FBDC_ARGB_888;
-                    pAreaPar->fbdc_data_format = 0x27;
-                    pAreaPar->fbdc_en = 1;
-                    pAreaPar->fbdc_cor_en = 0;
-
-                    pAreaPar->data_format = 0x27;
-                    break;
-
-                case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGB_888:
-                    D("to set afbc_format for rgb_888.");
-                    pAreaPar->fbdc_data_format = 0x28;
-                    pAreaPar->fbdc_en = 1;
-                    pAreaPar->fbdc_cor_en = 0;
-
-                    pAreaPar->data_format = 0x28;
-                    break;
-
-                case GRALLOC_ARM_HAL_FORMAT_INDEXED_RGB_565:
-                    D("to set afbc_format for rgb_565.");
-                    pAreaPar->fbdc_data_format = 0x26;
-                    pAreaPar->fbdc_en = 1;
-                    pAreaPar->fbdc_cor_en = 0;
-
-                    pAreaPar->data_format = 0x26;
-                    break;
-
-                default:
-                    E("unsupported index_of_arm_hal_format : 0x%llx.", index_of_arm_hal_format);
-                    break;
+            if (!IS_ALIGN(fb_info.win_par[0].area_par[0].xvir,16) )
+            {
+                fb_info.win_par[0].area_par[0].xvir = rkmALIGN(fb_info.win_par[0].area_par[0].xvir,16) - 16;
+            }
+            if (!IS_ALIGN(fb_info.win_par[0].area_par[0].yvir,4) )
+            {
+                fb_info.win_par[0].area_par[0].yvir = rkmALIGN(fb_info.win_par[0].area_par[0].yvir,4) - 4;
             }
         }
 #endif
+
 #if G6110_SUPPORT_FBDC
         //zxl: xact need 16bytes aligned and yact need 4bytes aligned in FBDC area.
         if( fb_info.win_par[0].area_par[0].fbdc_en == 1)
@@ -10516,11 +10847,25 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
 
             if(!IS_ALIGN(fb_info.win_par[0].area_par[0].xact,16))
             {
-                fb_info.win_par[0].area_par[0].xact=ALIGN(fb_info.win_par[0].area_par[0].yact,16)-16;
+                fb_info.win_par[0].area_par[0].xact=ALIGN(fb_info.win_par[0].area_par[0].xact,16)-16;
             }
         }
 #endif
 
+#ifdef ENABLE_HACK_WINS_CFG_FOR_CONFIG_DONE
+        int should_hack = hwc_get_int_property("debug.hwc.hack_wins_cfg", "0"); // shoud_hack_wins_cfg_for_config_done
+        if ( should_hack )
+        {
+            D("to hack 'fb_info'.");
+            hack_wins_cfg_for_config_done(context, list, &fb_info);
+
+            disable_hacking_wins_cfg(); // 若 hack_wins_cfg_for_config_done 只需要被执行一次.
+        }
+#endif
+
+#if hwcDumpSurface
+        _DumpSurface(list);
+#endif
         DUMP_FB_CONFIG_FOR_NEXT_FRAME(&fb_info, 1);
         D("to perform RK_FBIOSET_CONFIG_DONE for hwc_post.");
         if(ioctl(context->fbFd, RK_FBIOSET_CONFIG_DONE, &fb_info)){
@@ -10538,6 +10883,10 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
             ALOGD_IF(log(HLLONE),"ID=%d:",context!=_contextAnchor);
         }
         dump_config_info(fb_info,context,2);
+#ifdef ENABLE_MARK_TIME_FOR_DEBUGGING
+        might_mark_time_for_debugging(context, list);
+#endif
+
 #if DUAL_VIEW_MODE
 UseFence:
 #endif
@@ -10576,6 +10925,15 @@ UseFence:
     return 0;
 }
 
+/**
+ * 以 overlay 的方式将 'list' 送显示.
+ *
+ * @param mix_flag :
+ *      表征当前 hwc_context 的 composition_mode :
+ *          0, HWC_LCDC
+ *          1, HWC_MIX
+ *          2, HWC_MIX_V2
+ */
 static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int mix_flag) 
 {
     ATRACE_CALL();
@@ -10598,8 +10956,9 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
     //struct rk_fb_win_cfg_data fb_info;
     int comType = context->zone_manager.mCmpType;
 
-    D("to get hwc_fb_config_for_next_frame from 'list'.");
+    D("to get hwc_fb_config_for_next_frame from 'list', with mix_flag : %d.", mix_flag);
     hwc_collect_cfg(context,list,&hfi,mix_flag,false);
+
     if(comType == HWC_MIX_FPS) {
 #ifdef SUPPORT_STEREO
         hwc_add_fbinfo(context,list,&(hfi.fb_info));
@@ -10625,6 +10984,8 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
             eglSwapBuffers((EGLDisplay) dpy, (EGLSurface) surf);
         }
 #endif
+
+        /* 若当前在 context_of_external_display 中, 则... */
         if(context == _contextAnchor1) {
             if(_contextAnchor->mHdmiSI.NeedReDst) {
                 if(hotplug_reset_dstposition(&(hfi.fb_info),0)) {
@@ -10652,6 +11013,7 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
             hotplug_reset_dstposition(&(hfi.fb_info),2);
         }
 #endif
+
         if (is_primary_and_resolution_changed(context)) {
             hotplug_reset_dstposition(&(hfi.fb_info),2);
         }
@@ -10670,38 +11032,70 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
         if (context->mIsMipiDualOutMode)
             mipi_dual_vop_config(context, &hfi.fb_info);
 
-        DUMP_FB_CONFIG_FOR_NEXT_FRAME(&(hfi.fb_info), 1);
+        /*-----------------------------------*/
+
+        struct rk_fb_win_cfg_data* wins_cfg = &(hfi.fb_info);
+
+        /*
+#ifdef ENABLE_HACK_WINS_CFG_FOR_CONFIG_DONE
+        int should_hack = hwc_get_int_property("debug.hwc.hack_wins_cfg", "0"); // shoud_hack_wins_cfg_for_config_done
+        if ( should_hack )
+        {
+            D("to hack wins_cfg.");
+            hack_wins_cfg_for_config_done(context, list, wins_cfg);
+        }
+#endif
+        */
+
+        DUMP_FB_CONFIG_FOR_NEXT_FRAME(wins_cfg, 1);
+#if hwcDumpSurface
+        _DumpSurface(list);
+#endif
+
         D("to perform RK_FBIOSET_CONFIG_DONE for hwc_set_lcdc with mix_flag '%d'.", mix_flag);
-        if(ioctl(context->fbFd, RK_FBIOSET_CONFIG_DONE, &(hfi.fb_info))) {
+        // if(ioctl(context->fbFd, RK_FBIOSET_CONFIG_DONE, &(hfi.fb_info)))
+        if ( ioctl(context->fbFd, RK_FBIOSET_CONFIG_DONE, wins_cfg) )
+        {
             ALOGE("ID=%d:ioctl fail:%s",dpyID,strerror(errno));
             dump_config_info(hfi.fb_info,context,3);
         } else {
             ALOGD_IF(log(HLLONE),"ID=%d:",dpyID);
         }
+#ifdef ENABLE_MARK_TIME_FOR_DEBUGGING
+        might_mark_time_for_debugging(context, list);
+#endif
+        // V("to dump wins_cfg after RK_FBIOSET_CONFIG_DONE");
+        // DUMP_FB_CONFIG_FOR_NEXT_FRAME(wins_cfg, 1);
+
         if (mix_flag) {
             dump_config_info(hfi.fb_info,context,1);
         } else {
             dump_config_info(hfi.fb_info,context,0);
         }
+
 #if DUAL_VIEW_MODE
 UseFence:
 #endif
+
 #if USE_HWC_FENCE
         result.appendFormat("rel_fence_fd:");
         for(unsigned int i=0;i<RK_MAX_BUF_NUM;i++) {
             result.appendFormat("fd" "[%d]=%d ", i, hfi.fb_info.rel_fence_fd[i]);
             if(hfi.fb_info.rel_fence_fd[i] >= 0) {
+                /** 若对应 当前 area 的 hwc_layer 要求对应的 release_fence_fd, 则... */
                 if(hfi.pRelFenceFd[i]) {
                     if(*(hfi.pRelFenceFd[i]) == 0) {
                         *(hfi.pRelFenceFd[i]) = -1;
                         ALOGW("bug:%s,%d,prff can not be 0",__func__,__LINE__);
                     }
+
                     fd1 = *(hfi.pRelFenceFd[i]);
                     fd2 = hfi.fb_info.rel_fence_fd[i];
                     if(fd1 < 0)
                         *(hfi.pRelFenceFd[i]) = fd2 = hfi.fb_info.rel_fence_fd[i];
                     else
                         *(hfi.pRelFenceFd[i]) = fence_merge(hfi.LayerName[i],fd1,fd2);
+
                     if(*(hfi.pRelFenceFd[i]) < 0) {
                         *(hfi.pRelFenceFd[i]) = -1;
                     }
@@ -10719,6 +11113,7 @@ UseFence:
             result.appendFormat("bk buffer" "[%d].relFenceFd=%d ",i,context->relFenceFd[i]);
         }
         ALOGD_IF(log(HLLONE),"%s", result.string());
+
         if(list->retireFenceFd > 0) {
             close(list->retireFenceFd);
             list->retireFenceFd = -1;
@@ -10726,7 +11121,7 @@ UseFence:
 		if(hfi.fb_info.ret_fence_fd >= 0) {
             list->retireFenceFd = hfi.fb_info.ret_fence_fd;
         }
-#else
+#else   // #if USE_HWC_FENCE
         for(int i=0;i<RK_MAX_BUF_NUM;i++) {
             if(hfi.fb_info.rel_fence_fd[i] >= 0 ) {
                 if(i< (int)(list->numHwLayers -1)) {
@@ -10737,13 +11132,15 @@ UseFence:
                 }
              }            
     	}
+
         list->retireFenceFd = -1;
+
         if(hfi.fb_info.ret_fence_fd >= 0) {
             close(hfi.fb_info.ret_fence_fd);
         }
         //list->retireFenceFd = fb_info.ret_fence_fd;        
 #endif
-    } else {
+    } else {    // if(true)
         for(unsigned int i=0;i< (list->numHwLayers -1);i++) {
             list->hwLayers[i].releaseFenceFd = -1;    	   
     	}
@@ -10771,6 +11168,7 @@ UseFence:
         }
     }
 #endif
+
     return 0;
 }
 
@@ -11161,9 +11559,13 @@ int hwc_check_fencefd(size_t numDisplays,hwc_display_contents_1_t  ** displays)
     return 0;
 }
 
+/**
+ * 对 primary_display_device 和 external_display_device 的 hwc_composer_device_1::set 方法的具体实现.
+ */
 static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *list,int dpyID) 
 {
     ATRACE_CALL();
+
     if(!is_need_post(list,dpyID,0)){
         return -1;
     }
@@ -11240,6 +11642,7 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
     gettimeofday(&tpend1,NULL);
 #endif
     int ret = -1;
+
     if(context->mNeedRgaTransform) {
         int w_valid = context->mRgaTBI.w_valid;
         int h_valid = context->mRgaTBI.h_valid;
@@ -11267,6 +11670,8 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
         hwc_rga_blit(context, list);
     }
     
+    /*-------------------------------------------------------*/
+
     if(context->zone_manager.composter_mode == HWC_LCDC) {
         ret = hwc_set_lcdc(context,list,0);
     } else if (context->zone_manager.composter_mode == HWC_FRAMEBUFFER) {
@@ -11276,6 +11681,8 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
     } else if (context->zone_manager.composter_mode == HWC_MIX_V2) {
         ret = hwc_set_lcdc(context,list,2);
     }
+
+    /*-------------------------------------------------------*/
 
 #if !(defined(GPU_G6110) || defined(RK3288_BOX) || defined(RK3399_BOX))
     if(dpyID == HWCP)
@@ -11300,6 +11707,7 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
     usec1 = 1000*(tpend2.tv_sec - tpend1.tv_sec) + (tpend2.tv_usec- tpend1.tv_usec)/1000;
     LOGD("hwcBlit compositer %d layers use time=%ld ms",list->numHwLayers,usec1);
 #endif
+
     //close(Context->fbFd1);
 #ifdef ENABLE_HDMI_APP_LANDSCAP_TO_PORTRAIT            
     if (list != NULL && getHdmiMode()>0){
@@ -11398,6 +11806,7 @@ hwc_set(
     ATRACE_CALL();
     hwcContext * ctxp = _contextAnchor;
     int ret[4] = {0,0,0,0};
+
 #if (defined(GPU_G6110) || defined(RK_BOX))
     #ifdef RK3288_BOX
     if(_contextAnchor->mLcdcNum==1) {
@@ -11413,6 +11822,7 @@ hwc_set(
     }
     #endif
 #endif
+
     for (uint32_t i = 0; i < numDisplays; i++) {
         hwc_display_contents_1_t* list = displays[i];
         switch(i) {
@@ -11431,6 +11841,7 @@ hwc_set(
                 ret[3] = -EINVAL;
         }
     }
+
     for (uint32_t i = 0; i < numDisplays; i++) {
         hwc_display_contents_1_t* list = displays[i];
         if (list)
@@ -11439,6 +11850,7 @@ hwc_set(
         if (list && ctxp && ctxp->isVr)
             hwc_single_buffer_close_rel_fence(list);
     }
+
     hwc_check_fencefd(numDisplays,displays);
 
 #if HWC_DELAY_TIME_TEST
@@ -11450,6 +11862,7 @@ hwc_set(
         ALOGW("Why is the set error-----------------------------------------------");
 
     hwc_static_screen_opt_set();
+
     return 0;
 }
 

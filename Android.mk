@@ -22,7 +22,9 @@ LOCAL_SRC_FILES := \
 	rk_hwcomposer.cpp \
 	rk_hwc_com.cpp \
 	rga_api.cpp \
-	hwc_rga.cpp
+	hwc_rga.cpp \
+	rk_hwc_debug_mark_time.cpp \
+	rk_hwc_debug_hack_wins_cfg.cpp
 
 ifeq ($(strip $(TARGET_BOARD_PLATFORM)),rk3399)
 LOCAL_SRC_FILES += \
@@ -201,6 +203,7 @@ endif
 LOCAL_CFLAGS += -DPLATFORM_SDK_VERSION=$(PLATFORM_SDK_VERSION)
 
 ifeq ($(strip $(BOARD_USE_AFBC_LAYER)),true)
+# 宏 USE_AFBC_LAYER 和 在源码中定义的 G6110_SUPPORT_FBDC 相互独立并互斥.
 LOCAL_CFLAGS += -DUSE_AFBC_LAYER
 endif
 
