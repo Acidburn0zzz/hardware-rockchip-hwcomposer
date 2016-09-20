@@ -10119,7 +10119,12 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
         winID = 0;
 
     if (ctxp->mHdmiSI.NeedReDst && dpyID)
-	winID = 0;
+        winID = 0;
+
+    if (context->isRk3368 && context->isMid && dpyID == 0 &&
+                (ctxp->mHdmiSI.CvbsOn || ctxp->mHdmiSI.HdmiOn))
+        winID = 0;
+
     //if (context->fbFd>0 && !context->fb_blanked)
 #if defined(RK3288_MID)
     if(dpyID == 0 || (dpyID == 1 && !context->fb_blanked))
@@ -13325,11 +13330,11 @@ int hotplug_reset_dstposition(struct rk_fb_win_cfg_data * fb_info,int flag)
     unsigned int h_dst = 0;
     unsigned int w_hotplug = 0;
     unsigned int h_hotplug = 0;
-    if(fb_info == NULL){
+    if (fb_info == NULL) {
         return -1;
     }
 
-    if(flag != 2 && _contextAnchor1 == NULL){
+    if (flag != 2 && _contextAnchor1 == NULL) {
         return -1;
     }
 
@@ -13348,7 +13353,7 @@ int hotplug_reset_dstposition(struct rk_fb_win_cfg_data * fb_info,int flag)
         w_hotplug = context->dpyAttr[HWC_DISPLAY_EXTERNAL].xres;
         h_hotplug = context->dpyAttr[HWC_DISPLAY_EXTERNAL].yres;
         lseek(fd,0,SEEK_SET);
-        if(read(fd,buf,sizeof(buf)) < 0){
+        if (read(fd,buf,sizeof(buf)) < 0) {
             ALOGE("error reading fb screen_info:%d,%s",fd,strerror(errno));
             return -1;
         }
@@ -13366,17 +13371,23 @@ int hotplug_reset_dstposition(struct rk_fb_win_cfg_data * fb_info,int flag)
     default:
         break;
     }
-    
-    float w_scale = (float)w_dst / w_source; 
+
+    float w_scale = (float)w_dst / w_source;
     float h_scale = (float)h_dst / h_source;
-    
-    if(h_source != h_dst) {   
-        for(int i = 0;i<4;i++) {
-            for(int j=0;j<4;j++) {
+
+    if (h_source != h_dst) {
+        for (int i = 0; i < 4; i++) {
+            for (int j = 0; j < 4; j++) {
                 bool isNeedReset = fb_info->win_par[i].area_par[j].ion_fd != 0;
                 isNeedReset = isNeedReset || fb_info->win_par[i].area_par[j].phy_addr;
                 isNeedReset = isNeedReset && fb_info->win_par[i].area_par[j].reserved0 == 0;
-                if(isNeedReset) {
+
+                if (isNeedReset && fb_info->win_par[i].win_id > 1) {
+                    ALOGD_IF(log(HLLONE),"Is changing %d",__LINE__);
+                    continue;
+		}
+
+                if (isNeedReset) {
                     fb_info->win_par[i].area_par[j].xpos  =
                         (unsigned short)(fb_info->win_par[i].area_par[j].xpos * w_scale);
                     fb_info->win_par[i].area_par[j].ypos  =
@@ -13388,7 +13399,7 @@ int hotplug_reset_dstposition(struct rk_fb_win_cfg_data * fb_info,int flag)
                     ALOGD_IF(log(HLLONE),"Adjust dst to => [%d,%d,%d,%d][%d,%d,%d,%d]",
                         fb_info->win_par[i].area_par[j].xpos,fb_info->win_par[i].area_par[j].ypos,
                         fb_info->win_par[i].area_par[j].xsize,fb_info->win_par[i].area_par[j].ysize,
-			w_source, h_source, w_dst, h_dst);
+                        w_source, h_source, w_dst, h_dst);
                 }
             }
         }
