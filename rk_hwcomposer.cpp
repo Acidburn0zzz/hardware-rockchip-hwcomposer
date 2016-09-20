@@ -11429,6 +11429,12 @@ void handle_hotplug_event(int hdmi_mode ,int flag )
     if (!context->procs){
         return;
     }
+
+    if (hdmi_mode == -1 && flag == -1) {
+        context->procs->invalidate(context->procs);
+        return;
+    }
+
     bool isNeedRemove = true;
 #if (defined(GPU_G6110) || defined(RK3288_BOX))
 #ifdef RK3288_BOX
