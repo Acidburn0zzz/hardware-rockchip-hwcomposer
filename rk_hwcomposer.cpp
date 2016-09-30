@@ -1368,6 +1368,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
     bool useRgaScale = false;
     bool firsttfrmbyrga = true;
     Context->mMultiwindow = false;
+    Context->mIsLargeVideo = false;
 #if (defined(RK3368_BOX) || defined(RK3288_BOX) || defined(RK3399_BOX))
     bool NeedScale = false;
     bool NeedFullScreen = false;
@@ -1388,10 +1389,17 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         if (!hnd)
             continue;
 
-	    if (hnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_10)
+	    if (hnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_10) {
 	        Context->mHasYuvTenBit = true;
-    }
+	        if (hnd->width * hnd->height > 2160 * 1200)
+	            Context->mIsLargeVideo = true;
+	    }
 
+        if (hnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12) {
+	        if (hnd->width * hnd->height > 2160 * 1200)
+	            Context->mIsLargeVideo = true;
+	    }
+    }
 
     for (i = 0,j=0; i < (list->numHwLayers - 1) ; i++,j++){
         hwc_layer_1_t * layer = &list->hwLayers[i];
@@ -9324,6 +9332,9 @@ int hwc_try_policy(hwcContext * context,hwc_display_contents_1_t * list,int dpyI
             return -1;
         }
 #endif
+        if (context->mIsLargeVideo && context->mIsMediaView)
+            return -1;
+
         ret = context->fun_policy[i]((void*)context,list);
         if(!ret){
             break; // find the Policy

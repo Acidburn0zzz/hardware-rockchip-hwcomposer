@@ -642,6 +642,7 @@ typedef struct _hwcContext
     bool                           mVideoRotate;
     bool                           mGtsStatus;
     bool                           mTrsfrmbyrga;
+    bool                           mIsLargeVideo;
     int                            mtrsformcnt;
 
     /*****************dual display ***********************/
