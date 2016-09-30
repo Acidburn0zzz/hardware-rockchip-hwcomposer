@@ -21,6 +21,8 @@
 #include "rk_hwcomposer_api.h"
 #include <hardware/hardware.h>
 
+#include <utils/String8.h>
+
 #include <sys/prctl.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -133,6 +135,27 @@ int hwChangeFormatandroidL(IN int fmt)
 		default:
 			return fmt;
 	}
+}
+
+static int hwcGetBytePerPixelFromAndroidFromat(int fmt)
+{
+    switch (fmt) {
+        case HAL_PIXEL_FORMAT_RGBA_8888:
+        case HAL_PIXEL_FORMAT_RGBX_8888:
+        case HAL_PIXEL_FORMAT_BGRA_8888:
+            return 4;
+        case HAL_PIXEL_FORMAT_RGB_888:
+            return 3;
+        case HAL_PIXEL_FORMAT_RGB_565:
+        case HAL_PIXEL_FORMAT_YCbCr_422_SP:
+        case HAL_PIXEL_FORMAT_YCrCb_420_SP:
+        case HAL_PIXEL_FORMAT_YCbCr_422_I:
+        case HAL_PIXEL_FORMAT_YCrCb_NV12:
+        case HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO:
+        case HAL_PIXEL_FORMAT_YCrCb_NV12_10:
+            return 2;
+    }
+    return 0;
 }
 
 static int
@@ -7180,7 +7203,8 @@ _DumpSurface(
                 if( handle_pre == NULL || handle_pre->format == HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO)
                     continue;
 
-                SrcStride = android::bytesPerPixel(handle_pre->format);
+                SrcStride = hwcGetBytePerPixelFromAndroidFromat(handle_pre->format);
+
                 memset(layername,0,sizeof(layername));
                 system("mkdir /data/dump/ && chmod /data/dump/ 777 ");
                 //mkdir( "/data/dump/",777);
@@ -9382,8 +9406,7 @@ int hwc_prepare_virtual(hwc_composer_device_1_t * dev, hwc_display_contents_1_t 
 static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *list, int dpyID) 
 {
     ATRACE_CALL();
-
-	size_t i;
+    size_t i;
     size_t j;
 
     hwcContext * ctxp = _contextAnchor;
@@ -10062,14 +10085,16 @@ static int hwc_Post( hwcContext * context,hwc_display_contents_1_t* list)
     int dpyID = 0;
     int winID = 2;
 
-    if (list == NULL)
+    if (list == NULL) {
         return -1;
+    }
 
     if (context!=_contextAnchor)
         dpyID = 1;
 
-    if(!is_need_post(list,dpyID,1))
+    if(!is_need_post(list,dpyID,1)) {
         return -1;
+    }
 
     if (context->isBox && !dpyID && !context->isRk3399)
         winID = 0;
@@ -10329,6 +10354,7 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
     buffer_handle_t handle = 0;
     struct rk_fb_win_cfg_data fbwb;
     struct hwc_fb_info hfi;
+    android::String8 result;
 
     int fd1 = -1;
     int fd2 = -1;
@@ -10433,8 +10459,9 @@ static int hwc_set_lcdc(hwcContext * context, hwc_display_contents_1_t *list,int
 UseFence:
 #endif
 #if USE_HWC_FENCE
+        result.appendFormat("rel_fence_fd:");
         for(unsigned int i=0;i<RK_MAX_BUF_NUM;i++) {
-            ALOGD_IF(log(HLLSIX),"rel_fence_fd[%d] = %d", i, hfi.fb_info.rel_fence_fd[i]);
+            result.appendFormat("fd" "[%d]=%d ", i, hfi.fb_info.rel_fence_fd[i]);
             if(hfi.fb_info.rel_fence_fd[i] >= 0) {
                 if(hfi.pRelFenceFd[i]) {
                     if(*(hfi.pRelFenceFd[i]) == 0) {
@@ -10455,12 +10482,15 @@ UseFence:
                 }
             }
         }
+        result.appendFormat("\nLayer relFenceFd:");
         for(unsigned int i=0;i< (list->numHwLayers);i++) {
-            ALOGD_IF(log(HLLSIX),"Layer[%d].relFenceFd=%d",i,list->hwLayers[i].releaseFenceFd);
+            result.appendFormat("Layer" "[%d].relFd=%d ", i,list->hwLayers[i].releaseFenceFd);
         }
+        result.appendFormat("\nback buffer:");
         for(unsigned int i=0;i< MaxVideoBackBuffers;i++) {
-            ALOGD_IF(log(HLLSIX),"bk buffer[%d].relFenceFd=%d",i,context->relFenceFd[i]);
+            result.appendFormat("bk buffer" "[%d].relFenceFd=%d ",i,context->relFenceFd[i]);
         }
+        ALOGD_IF(log(HLLONE),"%s", result.string());
         if(list->retireFenceFd > 0) {
             close(list->retireFenceFd);
             list->retireFenceFd = -1;
@@ -10940,7 +10970,7 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
 
     /* Check layer list. */
     if ((list == NULL  || list->numHwLayers == 0) && dpyID == 0) {
-        LOGE("(%d):list=NULL,Layers =%d",__LINE__,list->numHwLayers);
+        ALOGE("(%d):list=NULL,Layers =%d",__LINE__,list->numHwLayers);
         /* Reset swap rectangles. */
         return -1;
     } else if(list == NULL) {
@@ -11182,9 +11212,10 @@ hwc_set(
             hwc_single_buffer_close_rel_fence(list);
     }
     hwc_check_fencefd(numDisplays,displays);
-#if ONLY_USE_ONE_VOP
-    if(ret[0] && ret[1]) {
-        ALOGW_IF(log(HLLONE),"%d,ret[%d,%d]",numDisplays,ret[0],ret[1]);
+
+#if HWC_DELAY_TIME_TEST
+    while (hwc_get_int_property("sys.hwc.test","0")) {
+	    usleep(HWC_DELAY_TIME_TEST);
     }
 #endif
 

@@ -57,6 +57,7 @@
 #define USE_WM_SIZE                     0           //1:use wm command,now bootanimation source error sometimes
 #define VIDEO_UI_OPTIMATION             1           //1:support,so we can reduce the bandwidth
 #define HTGFORCEREFRESH                 1           //1:some customer not use rk's setting apk,hwc need refesh
+#define HWC_DELAY_TIME_TEST             0
 
 #define RGA_BLIT                        1           //1:support blit by rga
 

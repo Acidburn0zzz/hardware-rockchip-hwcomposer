@@ -73,7 +73,8 @@ LOCAL_SHARED_LIBRARIES := \
 	libion \
 	libhardware_legacy \
 	libsync \
-	libui
+	libui \
+	libutils
 
 
 
