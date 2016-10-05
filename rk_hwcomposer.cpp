@@ -95,6 +95,7 @@ void*   hotplug_try_register(void *arg);
 void    hotplug_get_resolution(int* w,int* h);
 int     hotplug_set_config();
 int     hotplug_parse_mode(int *outX,int *outY);
+int     hwc_parse_screen_info(int *outX, int *outY);
 int     hotplug_get_config(int flag);
 int     hotplug_set_overscan(int flag);
 int     hotplug_reset_dstposition(struct rk_fb_win_cfg_data * fb_info,int flag);
@@ -12705,21 +12706,24 @@ int hotplug_get_config(int flag){
         }
         memset(context, 0, sizeof (hwcContext));
     }
-	struct fb_var_screeninfo info = _contextAnchor->info;
-	int outX = 0;
-	int outY = 0;
-	hotplug_parse_mode(&outX, &outY);
-	info.xres = outX;
-	info.yres = outY;
-	info.yres_virtual = info.yres * 3;
+    struct fb_var_screeninfo info = _contextAnchor->info;
+    int outX = 0;
+    int outY = 0;
+    hotplug_parse_mode(&outX, &outY);
+#if defined(TARGET_BOARD_PLATFORM_RK3399) || defined(TARGET_BOARD_PLATFORM_RK3366)
+    hwc_parse_screen_info(&outX, &outY);
+#endif
+    info.xres = outX;
+    info.yres = outY;
+    info.yres_virtual = info.yres * 3;
     info.xres_virtual = info.xres;
-	info.grayscale = 0;
-	info.grayscale |= info.xres<< 8;
-	info.grayscale |= info.yres<<20;
+    info.grayscale = 0;
+    info.grayscale |= info.xres<< 8;
+    info.grayscale |= info.yres<<20;
 #if (defined(GPU_G6110) || defined(RK3288_BOX))
 #if defined(RK3288_BOX)
     if(_contextAnchor->mLcdcNum == 1){
-        if(_contextAnchor->fbFd > 0){
+	if(_contextAnchor->fbFd > 0){
             fd  =  _contextAnchor->fbFd;
         }else{
             fd  =  open("/dev/graphics/fb0", O_RDWR, 0);
@@ -12740,7 +12744,7 @@ int hotplug_get_config(int flag){
 #endif
 #else
 #if defined(TARGET_BOARD_PLATFORM_RK3399) || defined(TARGET_BOARD_PLATFORM_RK3366)
-	if(context->fbFd > 0){
+    if(context->fbFd > 0){
 	    fd  =  context->fbFd;
     }else{
         fd  =  open("/dev/graphics/fb5", O_RDWR, 0);
@@ -12793,8 +12797,8 @@ int hotplug_get_config(int flag){
             fdExternal = open("/sys/class/graphics/fb0/screen_info", O_RDONLY);
         }
         #elif defined(TARGET_BOARD_PLATFORM_RK3399) || defined(TARGET_BOARD_PLATFORM_RK3366)
-	fdExternal = open("/sys/class/graphics/fb5/screen_info", O_RDONLY);
-	#else
+        fdExternal = open("/sys/class/graphics/fb5/screen_info", O_RDONLY);
+        #else
         fdExternal = open("/sys/class/graphics/fb0/screen_info", O_RDONLY);
         #endif
         if(fdExternal < 0){
@@ -13040,6 +13044,29 @@ OnError:
 
     return -EINVAL;
 
+}
+
+int hwc_parse_screen_info(int *outX, int *outY)
+{
+    char buf[100];
+    int width = 0;
+    int height = 0;
+    int fdExternal = -1;
+	fdExternal = open("/sys/class/graphics/fb5/screen_info", O_RDONLY);
+    if(fdExternal < 0){
+        ALOGE("hotplug_get_config:open fb screen_info error,cvbsfd=%d",fdExternal);
+        return -errno;
+	}
+    if(read(fdExternal,buf,sizeof(buf)) < 0){
+        ALOGE("error reading fb screen_info: %s", strerror(errno));
+        return -1;
+    }
+    close(fdExternal);
+	sscanf(buf,"xres:%d yres:%d",&width,&height);
+    ALOGD("hotplug_get_config:width=%d,height=%d",width,height);
+	*outX = width;
+	*outY = height;
+	return 0;
 }
 
 int hotplug_parse_mode(int *outX, int *outY)
