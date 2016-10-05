@@ -10970,8 +10970,8 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
         surf = list->sur;        
     }
 
-    if (context && !context->isRk3399)
-        hwc_sync(list);
+    //if (context && !context->isRk3399)
+    hwc_sync(list);
 
     /* Check device handle. */
     if (dpyID == 0 && (context == NULL || 
@@ -10989,8 +10989,8 @@ static int hwc_set_screen(hwc_composer_device_1 *dev, hwc_display_contents_1_t *
         return -1;
     }
 
-    if (context && context->isRk3399)
-        hwc_collect_acquire_fence_fd(context, list);
+    //if (context && context->isRk3399)
+    //    hwc_collect_acquire_fence_fd(context, list);
 
     if(ctxp->mBootCnt < BOOTCOUNT) {
         int offset = 0;
@@ -11230,6 +11230,8 @@ hwc_set(
 	    usleep(HWC_DELAY_TIME_TEST);
     }
 #endif
+    if (ret[0])
+        ALOGW("Why is the set error-----------------------------------------------");
 
     hwc_static_screen_opt_set();
     return 0;
