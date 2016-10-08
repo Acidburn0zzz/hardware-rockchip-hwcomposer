@@ -106,6 +106,21 @@ static void             initCrcTable(void);
 static int              fence_merge(char * value, int fd1, int fd2);
 static int              dual_view_vop_config(struct rk_fb_win_cfg_data * fbinfo);
 static int              mipi_dual_vop_config(hwcContext *ctx, struct rk_fb_win_cfg_data * fbinfo);
+
+/**
+ * 返回 rk_vop 是否支持输出指定的 hal_pixel_format.
+ */
+static bool is_hal_format_supported_by_vop(int hal_format)
+{
+    if ( HAL_PIXEL_FORMAT_YV12 == hal_format
+        || HAL_PIXEL_FORMAT_YCbCr_420_888 == hal_format )
+    {
+        return false;
+    }
+
+    return true;
+}
+
 /*-------------------------------------------------------*/
 
 #ifdef USE_AFBC_LAYER
@@ -117,19 +132,33 @@ inline static bool isAfbcInternalFormat(uint64_t internal_format)
 
 /*---------------------------------------------------------------------------*/
 
+/**
+ * 从 hal_pixel_format 得到对应的 rk_vop_pixel_format.
+ *
+ * .trick : 因为历史原因, userspace(graphics.h) 和 vop_driver 中对 rk_ext_hal_pixel_format 定义的常数标识符 value 不同.
+ *          参见 kernel/include/linux/rk_fb.h.
+ */
 int hwChangeFormatandroidL(IN int fmt)
 {
 	switch (fmt) 
 	{
 		case HAL_PIXEL_FORMAT_YCrCb_NV12:	/* YUV420---uvuvuv */
 			return 0x20;                   /*android4.4 HAL_PIXEL_FORMAT_YCrCb_NV12 is 0x20*/    
-			
 		case HAL_PIXEL_FORMAT_YCrCb_NV12_10:	/* yuv444 */
 			return 0x22;				        /*android4.4 HAL_PIXEL_FORMAT_YCrCb_NV12_10 is 0x20*/
+        case HAL_PIXEL_FORMAT_YCbCr_422_SP_10:
+            return 0x23;
+        case HAL_PIXEL_FORMAT_YCrCb_420_SP_10:
+            return 0x24;
+        /*-----------------------------------*/
+        case HAL_PIXEL_FORMAT_YCbCr_420_888:    // 0x23.
+            return -1;
+        /*-----------------------------------*/
 #ifdef GPU_G6110
 		case HAL_PIXEL_FORMAT_BGRX_8888:
 		    return HAL_PIXEL_FORMAT_RGBA_8888;
 #endif
+        /*-----------------------------------*/
 		default:
 			return fmt;
 	}
@@ -8722,6 +8751,7 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
         int area_no = 0;
         int win_id = 0;
         int raw_format=hwChangeFormatandroidL(pzone_mag->zone_info[i].format);
+
         ALOGD_IF(log(HLLONE),"hwc_set_lcdc Zone[%d]->layer[%d],dispatched=%d,"
         "[%d,%d,%d,%d] =>[%d,%d,%d,%d],"
         "w_h_s_f[%d,%d,%d,0x%x],tr_rtr_bled[%d,%d,%d],"
@@ -9453,8 +9483,10 @@ static int hwc_prepare_screen(hwc_composer_device_1 *dev, hwc_display_contents_1
             handle->share_fd = handle->fd[0];
         }
 #endif
-        if(handle && GPU_FORMAT == HAL_PIXEL_FORMAT_YV12){
-            ALOGD_IF(log(HLLFOU),"HAL_PIXEL_FORMAT_YV12 out");
+
+        if ( handle && !(is_hal_format_supported_by_vop(GPU_FORMAT) ) )
+        {
+            ALOGD_IF(log(HLLFOU),"preset gles_composition for vop unsupported hal_format 0x%x.", GPU_FORMAT);
             goto GpuComP;
         }
     }
