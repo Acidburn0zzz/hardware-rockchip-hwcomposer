@@ -1242,6 +1242,38 @@ static bool is_primary_and_resolution_changed(hwcContext * ctx)
     return ret;
 }
 
+static bool is_vop_connected(int vopIndex)
+{
+    const char node[] = "/sys/class/graphics/fb%u/hot_plug_state";
+    char nodeName[100] = {0};
+    char value[100] = {0};
+    bool connected = false;
+    int fbindx = 0;
+    int fbFd = -1;
+    int ret = 0;
+    if (vopIndex == 0)
+        fbindx = 1;
+    if (vopIndex == 1)
+        fbindx = 6;
+
+    snprintf(nodeName, 64, node, fbindx);
+
+    ALOGD("nodeName=%s",nodeName);
+    fbFd = open(nodeName,O_RDONLY);
+    if(fbFd > -1) {
+        ret = read(fbFd,value,80);
+        if(ret <= 0) {
+            ALOGE("fb%d/win_property read fail %s", fbindx, strerror(errno));
+        } else {
+            connected = !!atoi(value);
+            ALOGI("fb%d/win_property winFeature:%d", fbindx, connected);
+        }
+        close(fbFd);
+    }
+
+    return connected;
+}
+
 static bool is_common_vop(int vopIndex)
 {
     const char node[] = "/sys/class/graphics/fb%u/win_property";
@@ -13261,10 +13293,13 @@ void *hotplug_try_register(void *arg)
     hwcContext * context = _contextAnchor;
     int count = 0;
 
-    if (context->isRk3399 && context->isBox) {
+    if (context->isRk3399/* && context->isBox*/) {
         hwc_change_screen_config(0, 0, 1);
+        if (is_vop_connected(HWC_DISPLAY_EXTERNAL/**/))
+            handle_hotplug_event(1, 6);
         goto READY;
     }
+
 #ifndef RK3368_BOX
 #if RK3288_BOX
     if(context->mLcdcNum == 2)
