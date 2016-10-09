@@ -1306,6 +1306,51 @@ static bool is_common_vop(int vopIndex)
     return winFeature & 0x2;
 }
 
+static bool isVopNeedLargeBandwidth(hwcContext * ctx,
+                                                float hfactor, float vfactor)
+{
+    int w,h,rw,rh;
+    float hScale,vScale;
+    bool ret = false;
+    if (!ctx)
+        return -1;
+
+    w = h = rw = rh = 0;
+    if (ctx->mContextIndex == 0) {
+        w = ctx->dpyAttr[HWC_DISPLAY_PRIMARY].xres;
+        h = ctx->dpyAttr[HWC_DISPLAY_PRIMARY].yres;
+        rw = ctx->dpyAttr[HWC_DISPLAY_PRIMARY].relxres;
+        rh = ctx->dpyAttr[HWC_DISPLAY_PRIMARY].relyres;
+    } else if (ctx->mContextIndex == 1) {
+        w = _contextAnchor->dpyAttr[HWC_DISPLAY_EXTERNAL].xres;
+        h = _contextAnchor->dpyAttr[HWC_DISPLAY_EXTERNAL].yres;
+        rw = _contextAnchor1->dpyAttr[HWC_DISPLAY_EXTERNAL].xres;
+        rh = _contextAnchor1->dpyAttr[HWC_DISPLAY_EXTERNAL].yres;
+    }
+
+    if (rw > rh)
+        return false;
+
+    hScale = hfactor * w / rw;
+    vScale = vfactor * h / rh;
+
+    if (hScale >= 2)
+        ret = true;
+
+    if (vScale >= 1.5 && vScale < 2)
+        ret = true;
+
+    if (vScale >= 3.5 && vScale < 4)
+        ret = true;
+
+    if (vScale >= 7.5 && vScale < 8)
+        ret = true;
+
+    ALOGD_IF(log(HLLTWO), "w-h-rw-rh-h-v[%d,%d,%d,%d,%f,%f,%f,%f]",
+                        w, h, rw, rh, hfactor, vfactor, hScale, vScale);
+    return ret;
+}
+
 static int queryVopScreenMode(hwcContext* ctx)
 {
     if (!ctx)
@@ -1753,7 +1798,7 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
         supportPlatform = supportPlatform || Context->isRk3399;
 
         if (SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12_10 && supportPlatform) {
-            if (vfactor < 4 && vfactor > 2 && hfactor < 4 && hfactor > 2)
+            if (isVopNeedLargeBandwidth(Context, hfactor, vfactor))
                 useRgaScale = true;
             else if (layer->transform)
                 useRgaScale = true;
@@ -1761,8 +1806,8 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
             Context->mTrsfrmbyrga |= useRgaScale;
         }
 
-	if (SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12 && !trsfrmbyrga) {
-            if (vfactor < 4 && vfactor > 2 && hfactor < 4 && hfactor > 2)
+        if (SrcHnd->format == HAL_PIXEL_FORMAT_YCrCb_NV12 && !trsfrmbyrga) {
+            if (isVopNeedLargeBandwidth(Context, hfactor, vfactor))
                 useRgaScale = true;
             trsfrmbyrga = useRgaScale;
             Context->mTrsfrmbyrga |= useRgaScale;
