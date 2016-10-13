@@ -2015,9 +2015,9 @@ int collect_all_zones( hwcContext * Context,hwc_display_contents_1_t * list)
                                              Context->zone_manager.zone_info[j].disp_rect.left;
                         psrc_rect->bottom = Context->zone_manager.zone_info[j].disp_rect.bottom -
                                                 Context->zone_manager.zone_info[j].disp_rect.top;
-                        Context->zone_manager.zone_info[j].stride = psrc_rect->bottom;
-                        Context->zone_manager.zone_info[j].width = psrc_rect->bottom - psrc_rect->bottom % 2;
-                        Context->zone_manager.zone_info[j].height = rkmALIGN(psrc_rect->right,32);
+                        Context->zone_manager.zone_info[j].stride = psrc_rect->right;
+                        Context->zone_manager.zone_info[j].width = psrc_rect->right - psrc_rect->right % 2;
+                        Context->zone_manager.zone_info[j].height = rkmALIGN(psrc_rect->bottom,32);
                         break;
                     case 0:
                     case HWC_TRANSFORM_ROT_180:
@@ -9031,7 +9031,7 @@ int hwc_collect_cfg(hwcContext * context, hwc_display_contents_1_t *list,struct 
             }
 
             fb_info.win_par[win_no-1].area_par[area_no].xvir = pzone_mag->zone_info[i].height ;
-            fb_info.win_par[win_no-1].area_par[area_no].yvir = pzone_mag->zone_info[i].stride;  
+            fb_info.win_par[win_no-1].area_par[area_no].yvir = pzone_mag->zone_info[i].stride;
         }else{
             fb_info.win_par[win_no-1].area_par[area_no].xact = psrc_rect->right- psrc_rect->left;
             fb_info.win_par[win_no-1].area_par[area_no].yact = psrc_rect->bottom - psrc_rect->top;
