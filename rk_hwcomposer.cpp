@@ -12601,6 +12601,17 @@ hwc_device_open(
     if (context->mIsMipiDualOutMode)
         hwc_primary_screen_query();
 
+    if (context->isRk3399) {
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
+        CPU_SET(4, &mask);
+        CPU_SET(5, &mask);
+        int pid = getpid();
+        int ret = sched_setaffinity(pid, sizeof(mask), &mask);
+        if (ret < 0)
+            ALOGW("sched_setaffinity return %d, errno = %d\n",ret,errno);
+    }
+
     return 0;
 
 OnError:
