@@ -639,7 +639,7 @@ void hwc_sync(hwc_display_contents_1_t  *list)
 			continue;
 
 		struct private_handle_t * hnd = (struct private_handle_t *)layer->handle;
-		if(hnd && (hnd->usage & 0x08000000))
+		if(hnd && (hnd->usage & GRALLOC_USAGE_TO_USE_SINGLE_BUFFER))
 		{
 			forceSkip = true;
 		}
@@ -707,7 +707,7 @@ int hwc_single_buffer_close_rel_fence(hwc_display_contents_1_t  *list)
 		if (hnd == NULL)
 			continue;
 
-		if (layer->releaseFenceFd > -1 && (hnd->usage & 0x08000000))
+		if (layer->releaseFenceFd > -1 && (hnd->usage & GRALLOC_USAGE_TO_USE_SINGLE_BUFFER))
 		{
 			ALOGD_IF(log(2),">>>close releaseFenceFd:%d,layername=%s",
 					layer->releaseFenceFd,layer->LayerName);
