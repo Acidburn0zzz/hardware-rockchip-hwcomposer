@@ -62,7 +62,7 @@
 #define RGA_BLIT                        1           //1:support blit by rga
 
 #ifdef GPU_G6110
-#define G6110_SUPPORT_FBDC              1
+#define G6110_SUPPORT_FBDC              0
 #define VIRTUAL_RGA_BLIT                0           //1:wfd optimazition by rga
 #define SPRITEOPTIMATION                1           //1:support sprite optimation for overlay
 #else
