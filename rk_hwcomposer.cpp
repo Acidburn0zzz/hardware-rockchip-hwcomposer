@@ -117,13 +117,13 @@ int deinit_tv_hdr_info(hwcContext *ctx)
     return 0;
 }
 
-int hwc_get_density(int width, int height)
+float hwc_get_density(int width, int height)
 {
-  char name[100];
-  char value[PROPERTY_VALUE_MAX];
-  sprintf(name, "ro.sf.lcd_density.%d", height);
-  property_get(name, value, "213");
-  return atof(value) * 1000;
+    char name[100];
+    char value[PROPERTY_VALUE_MAX];
+    sprintf(name, "ro.sf.lcd_density.%d", height);
+    property_get(name, value, "213");
+    return atof(value) * 1000;
 }
 
 static struct hw_module_methods_t hwc_module_methods =
@@ -4920,6 +4920,7 @@ hwc_device_open(
 #if !ONLY_USE_FB_BUFFERS
     int stride_gr;
 #endif
+    int xres, yres;
 
 
     LOGD("%s(%d):Open hwc device in thread=%d",
@@ -4969,16 +4970,21 @@ hwc_device_open(
         hwcONERROR(hwcSTATUS_IO_ERR);
     }
 
-
-
     if (ioctl(context->fbFd, FBIOGET_VSCREENINFO, &info) == -1) {
         hwcONERROR(hwcSTATUS_IO_ERR);
     }
 
-    if (context->IsRk322x)
-        hotplug_parse_screen("fb0", &info.xres, &info.yres);
-    else
-        hotplug_parse_mode(&info.xres, &info.yres);
+    xres = hwc_get_int_property("sys.hwc.width", "0");
+    if (xres != 0) {
+        info.xres = xres;
+        info.xres_virtual = xres;
+    }
+
+    yres = hwc_get_int_property("sys.hwc.height", "0");
+    if (yres != 0) {
+        info.yres = yres;
+        info.yres_virtual = yres;
+    }
 
     if (ioctl(context->fbFd, FBIOPUT_VSCREENINFO, &info) == -1) {
         hwcONERROR(hwcSTATUS_IO_ERR);
@@ -4986,7 +4992,6 @@ hwc_device_open(
 
     xdpi = hwc_get_density(info.xres, info.yres); // 1000 * (info.xres * 25.4f) / info.width;
     ydpi = hwc_get_density(info.xres, info.yres); // 1000 * (info.yres * 25.4f) / info.height;
-
 
     inverseRefreshRate = uint64_t(info.upper_margin + info.lower_margin + info.yres)
                    * (info.left_margin  + info.right_margin + info.xres)
@@ -5415,7 +5420,6 @@ void init_hdmi_mode()
     {
         LOGE("Open hdmi mode error.");
     }
-
 }
 
 int hotplug_parse_screen(const char *name, u32 *outX, u32 *outY)
