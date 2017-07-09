@@ -117,6 +117,15 @@ int deinit_tv_hdr_info(hwcContext *ctx)
     return 0;
 }
 
+int hwc_get_density(int width, int height)
+{
+  char name[100];
+  char value[PROPERTY_VALUE_MAX];
+  sprintf(name, "ro.sf.lcd_density.%d", height);
+  property_get(name, value, "213");
+  return atof(value) * 1000;
+}
+
 static struct hw_module_methods_t hwc_module_methods =
 {
 open:
@@ -4879,6 +4888,9 @@ int hwc_copybit(struct hwc_composer_device_1 *dev, buffer_handle_t src_handle, b
     return 0;
 }
 
+int hotplug_parse_screen(const char *name, u32 *outX, u32 *outY);
+int hotplug_parse_mode(u32 *outX, u32 *outY);
+
 static void hwc_dump(struct hwc_composer_device_1* dev, char *buff, int buff_len)
 {
     HWC_UNREFERENCED_PARAMETER(dev);
@@ -4959,20 +4971,28 @@ hwc_device_open(
 
 
 
-    if (ioctl(context->fbFd, FBIOGET_VSCREENINFO, &info) == -1)
-    {
+    if (ioctl(context->fbFd, FBIOGET_VSCREENINFO, &info) == -1) {
         hwcONERROR(hwcSTATUS_IO_ERR);
     }
 
-    xdpi = 1000 * (info.xres * 25.4f) / info.width;
-    ydpi = 1000 * (info.yres * 25.4f) / info.height;
+    if (context->IsRk322x)
+        hotplug_parse_screen("fb0", &info.xres, &info.yres);
+    else
+        hotplug_parse_mode(&info.xres, &info.yres);
+
+    if (ioctl(context->fbFd, FBIOPUT_VSCREENINFO, &info) == -1) {
+        hwcONERROR(hwcSTATUS_IO_ERR);
+    }
+
+    xdpi = hwc_get_density(info.xres, info.yres); // 1000 * (info.xres * 25.4f) / info.width;
+    ydpi = hwc_get_density(info.xres, info.yres); // 1000 * (info.yres * 25.4f) / info.height;
 
 
     inverseRefreshRate = uint64_t(info.upper_margin + info.lower_margin + info.yres)
                    * (info.left_margin  + info.right_margin + info.xres)
                    * info.pixclock;
 
-    ALOGD("v[%d,%d,%d],h[%d,%d,%d],c[%d][%d,%dmm]", info.upper_margin, info.lower_margin,
+    ALOGI("v[%d,%d,%d],h[%d,%d,%d],c[%d][%d,%dmm]", info.upper_margin, info.lower_margin,
 			info.yres, info.left_margin, info.right_margin,info.xres,
 			info.pixclock, info.width, info.height);
 
@@ -5398,18 +5418,20 @@ void init_hdmi_mode()
 
 }
 
-int hotplug_parse_screen(int *outX, int *outY)
+int hotplug_parse_screen(const char *name, u32 *outX, u32 *outY)
 {
     char buf[100];
     int width = 0;
     int height = 0;
     int fdExternal = -1;
-    fdExternal = open("/sys/class/graphics/fb2/screen_info", O_RDONLY);
+    sprintf(buf, "/sys/class/graphics/%s/screen_info", name);
+    fdExternal = open(buf, O_RDONLY);
     if(fdExternal < 0){
         ALOGE("hotplug_get_config:open fb screen_info error,cvbsfd=%d",fdExternal);
         return -errno;
 	}
-    if(read(fdExternal,buf,sizeof(buf)) < 0){
+    memset(buf, 0, sizeof(buf));
+    if(read(fdExternal,buf,sizeof(buf)-1) < 0){
         ALOGE("error reading fb screen_info: %s", strerror(errno));
         return -1;
     }
@@ -5421,7 +5443,7 @@ int hotplug_parse_screen(int *outX, int *outY)
     return 0;
 }
 
-int hotplug_parse_mode(int *outX, int *outY)
+int hotplug_parse_mode(u32 *outX, u32 *outY)
 {
    int fd = open("/sys/class/display/HDMI/mode", O_RDONLY);
    ALOGD("enter %s", __FUNCTION__);
@@ -5430,7 +5452,7 @@ int hotplug_parse_mode(int *outX, int *outY)
    {
         char statebuf[100];
         memset(statebuf, 0, sizeof(statebuf));
-        int err = read(fd, statebuf, sizeof(statebuf));
+        int err = read(fd, statebuf, sizeof(statebuf)-1);
         if (err < 0)
         {
             ALOGE("error reading hdmi mode: %s", strerror(errno));
@@ -5546,16 +5568,17 @@ int hotplug_get_config(int flag)
         hwcONERROR(hwcSTATUS_IO_ERR);
     }
 
-    int xres,yres;
     if(contextp->IsRk322x)
-        hotplug_parse_screen(&xres, &yres);
+        hotplug_parse_screen("fb2", &info.xres, &info.yres);
     else
-        hotplug_parse_mode(&xres, &yres);
-    info.xres = xres;
-    info.yres = yres;
+        hotplug_parse_mode(&info.xres, &info.yres);
 
-    xdpi = 1000 * (info.xres * 25.4f) / info.width;
-    ydpi = 1000 * (info.yres * 25.4f) / info.height;
+    if (ioctl(context->fbFd, FBIOPUT_VSCREENINFO, &info) == -1) {
+        hwcONERROR(hwcSTATUS_IO_ERR);
+    }
+
+    xdpi = hwc_get_density(info.xres, info.yres); // 1000 * (info.xres * 25.4f) / info.width;
+    ydpi = hwc_get_density(info.xres, info.yres); // 1000 * (info.yres * 25.4f) / info.height;
 
     inverseRefreshRate = uint64_t(info.upper_margin + info.lower_margin + info.yres)
 	    * (info.left_margin  + info.right_margin + info.xres)
