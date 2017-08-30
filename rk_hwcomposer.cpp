@@ -81,6 +81,7 @@ static char const* compositionModeName[] = {
 };
 
 
+static int hwc_set_active_config(struct hwc_composer_device_1 *dev, int disp, int index);
 static int  hwc_blank(struct hwc_composer_device_1 *dev,int dpy,int blank);
 static int  hwc_query(struct hwc_composer_device_1* dev,int what,int* value);
 static int  hwc_event_control(struct hwc_composer_device_1* dev,int dpy,int event,int enabled);
@@ -385,6 +386,8 @@ static int LayerZoneCheck(hwc_layer_1_t * Layer,hwcContext * Context)
                 || rects[i].right > Context->fbWidth
                 || rects[i].bottom > Context->fbHeight)
         {
+        	ALOGE("checkzone=%s,[%d,%d,%d,%d] fb[%dx%d]", \
+             Layer->LayerName, rects[i].left, rects[i].top, rects[i].right, rects[i].bottom, Context->fbWidth, Context->fbHeight);
             return -1;
         }
     }
@@ -2001,7 +2004,7 @@ int try_hwc_vop_gpu_policy(void * ctx,hwc_display_contents_1_t *list)
         || handle == NULL
         || layer->transform != 0
         // ||(list->numHwLayers - 1)>4
-        ||((list->numHwLayers - 1)<3 && !(context->Is_video && (context->IsRk322x || context->IsRk3328))))
+	||((list->numHwLayers - 1)<3 && !(context->Is_video && (context->IsRk322x))))
     {
         if(is_out_log())
           ALOGD("policy skip,flag=%x,hanlde=%x,tra=%d,num=%d,line=%d",
@@ -4856,38 +4859,118 @@ hwc_device_close(
     return 0;
 }
 
+HwMode::HwMode(uint32_t width, uint32_t height, uint32_t vrefresh, bool is_interlaced)
+    : width_(width),
+      height_(height),
+      vrefresh_(vrefresh),
+      is_interlaced_(is_interlaced){
+}
+
+HwMode::~HwMode()
+{
+}
+
+uint32_t HwMode::width() const {
+  return width_;
+}
+
+uint32_t HwMode::height() const {
+  return height_;
+}
+
+uint32_t HwMode::vrefresh() const {
+  return vrefresh_;
+}
+
+bool HwMode::is_interlaced() const {
+  return is_interlaced_;
+}
+
+static int hwc_get_active_config(struct hwc_composer_device_1 *dev,
+                                 int display)
+{
+  return 0;
+}
+
+static int hwc_set_active_config(struct hwc_composer_device_1 *dev,
+                                 int disp, int index)
+{
+  hwcContext * pdev = ( hwcContext  *)dev;
+  DisplayAttributes *dpy = &pdev->dpyAttr[disp];
+
+  if (!dpy || !dpy->modes.size()/*|| disp == HWC_DISPLAY_PRIMARY*/) {
+    return -1;
+  }
+  HwMode mode = dpy->modes[index];
+  if (!mode.width() || !mode.height() || !mode.vrefresh()) {
+    return -1;
+  }
+  int fd = open("/sys/class/display/HDMI/mode", O_RDWR);
+  char buffer[100];
+  size_t size;
+
+  size = snprintf(buffer, 100, "%dx%d%c-%d\n", mode.width(), mode.height(),
+                  mode.is_interlaced() ? 'i' : 'p', mode.vrefresh());
+  write(fd,buffer,size);
+  close(fd);
+
+  return 0;
+}
+
 static int hwc_getDisplayConfigs(struct hwc_composer_device_1* dev, int disp,
                                  uint32_t* configs, size_t* numConfigs)
 {
-    int ret = 0;
-    hwcContext * pdev = (hwcContext  *)dev;
-    //in 1.1 there is no way to choose a config, report as config id # 0
-    //This config is passed to getDisplayAttributes. Ignore for now.
-    switch (disp)
-    {
-
-        case HWC_DISPLAY_PRIMARY:
-            if (*numConfigs > 0)
-            {
-                configs[0] = 0;
-                *numConfigs = 1;
-            }
-            ret = 0; //NO_ERROR
-            break;
-        case HWC_DISPLAY_EXTERNAL:
-            ret = -1; //Not connected
-            if (pdev->dpyAttr[HWC_DISPLAY_EXTERNAL].connected)
-            {
-                ret = 0; //NO_ERROR
-                if (*numConfigs > 0)
-                {
-                    configs[0] = 0;
-                    *numConfigs = 1;
-                }
-            }
-            break;
-    }
+	 int ret = 0;
+  hwcContext * pdev = ( hwcContext  *)dev;
+  DisplayAttributes *dpy = &pdev->dpyAttr[disp];
+  if (!numConfigs)
     return 0;
+
+  if (!dpy || !*numConfigs)
+    return -1;
+  dpy->modes.clear();
+  if (disp == HWC_DISPLAY_PRIMARY) {
+    HwMode mode(dpy->xres, dpy->yres, 1000000000 / dpy->vsync_period, false);
+    dpy->modes.push_back(mode);
+    configs[0] = 0;
+  }
+
+#if 0
+  if (disp == HWC_DISPLAY_PRIMARY) {
+    HwMode mode(dpy->xres, dpy->yres, 1000000000 / dpy->vsync_period, false);
+    dpy->modes.push_back(mode);
+    configs[0] = 0;
+  } else if (disp == HWC_DISPLAY_EXTERNAL && dpy->connected) {
+#endif
+  {
+    ssize_t read = 0;
+    size_t len;
+    char *line = NULL;
+    FILE * pfile = fopen("/sys/class/display/HDMI/modes", "r");
+
+    if (!pfile)
+      return -1;
+
+    while (read != -1) {
+      unsigned int width, height, vrefresh;
+      char val;
+      int idx = dpy->modes.size();
+
+      read = getline(&line, &len, pfile);
+      sscanf(line, "%dx%d%c-%d", &width, &height, &val, &vrefresh);
+      if (!width || !height || !vrefresh)
+        continue;
+      if (width > 4096 || height > 4096 || vrefresh > 200)
+	continue;
+      HwMode mode(width, height, vrefresh, val == 'i');
+      dpy->modes.push_back(mode);
+      configs[idx] = idx;
+    }
+    fclose(pfile);
+  }
+  *numConfigs = dpy->modes.size();
+
+  return *numConfigs ? 0 : -1;
 }
 
 static int hwc_getDisplayAttributes(struct hwc_composer_device_1* dev, int disp,
@@ -4896,9 +4979,10 @@ static int hwc_getDisplayAttributes(struct hwc_composer_device_1* dev, int disp,
     HWC_UNREFERENCED_PARAMETER(config);
 
     hwcContext  *pdev = (hwcContext  *)dev;
+    DisplayAttributes *dpy = &pdev->dpyAttr[disp];
     //If hotpluggable displays are inactive return error
-    if (disp == HWC_DISPLAY_EXTERNAL && !pdev->dpyAttr[disp].connected)
-    {
+    if(!dpy || !dpy->modes.size() ||
+       (disp == HWC_DISPLAY_EXTERNAL && !pdev->dpyAttr[disp].connected)) {
         return -1;
     }
     static  uint32_t DISPLAY_ATTRIBUTES[] =
@@ -4913,23 +4997,24 @@ static int hwc_getDisplayAttributes(struct hwc_composer_device_1* dev, int disp,
     //From HWComposer
 
     const int NUM_DISPLAY_ATTRIBUTES = (sizeof(DISPLAY_ATTRIBUTES) / sizeof(DISPLAY_ATTRIBUTES)[0]);
+    HwMode mode = dpy->modes[config];
 
     for (size_t i = 0; i < NUM_DISPLAY_ATTRIBUTES - 1; i++)
     {
         switch (attributes[i])
         {
             case HWC_DISPLAY_VSYNC_PERIOD:
-                values[i] = pdev->dpyAttr[disp].vsync_period;
+                values[i] = 1000000000 / mode.vrefresh();
                 break;
             case HWC_DISPLAY_WIDTH:
-                values[i] = pdev->dpyAttr[disp].xres;
-                ALOGD("%s disp = %d, width = %d", __FUNCTION__, disp,
-                      pdev->dpyAttr[disp].xres);
+		values[i] = mode.width();
+		ALOGE("%s disp = %d, width = %d",__FUNCTION__, disp,
+				mode.width());
                 break;
             case HWC_DISPLAY_HEIGHT:
-                values[i] = pdev->dpyAttr[disp].yres;
-                ALOGD("%s disp = %d, height = %d", __FUNCTION__, disp,
-                      pdev->dpyAttr[disp].yres);
+		values[i] = mode.height();
+		ALOGE("%s disp = %d, height = %d",__FUNCTION__, disp,
+				mode.height());
                 break;
             case HWC_DISPLAY_DPI_X:
                 values[i] = (int32_t)(pdev->dpyAttr[disp].xdpi);
@@ -5109,6 +5194,9 @@ hwc_device_open(
     context->device.eventControl   = hwc_event_control;
 
     context->device.registerProcs  = hwc_registerProcs;
+
+    context->device.getActiveConfig = hwc_get_active_config;
+    context->device.setActiveConfig = hwc_set_active_config;
 
     context->device.getDisplayConfigs = hwc_getDisplayConfigs;
     context->device.getDisplayAttributes = hwc_getDisplayAttributes;

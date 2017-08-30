@@ -263,9 +263,27 @@ FenceMangrRga;
         /* Next area pool. */
         hwcAreaPool *                    next;
     };
+class HwMode {
+ public:
+  HwMode() = default;
+  HwMode(uint32_t width, uint32_t height, uint32_t vrefresh, bool is_uint32_terlaced);
+  ~HwMode();
+
+  uint32_t width() const;
+  uint32_t height() const;
+  uint32_t vrefresh() const;
+  bool is_interlaced() const;
+
+ private:
+  uint32_t width_;
+  uint32_t height_;
+  uint32_t vrefresh_; //nanos
+  bool is_interlaced_;
+};
 
     struct DisplayAttributes
     {
+	std::vector<HwMode> modes;
         uint32_t vsync_period; //nanos
         uint32_t xres;
         uint32_t yres;
