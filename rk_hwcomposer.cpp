@@ -81,6 +81,7 @@ static char const* compositionModeName[] = {
 };
 
 
+static int hwc_set_active_config(struct hwc_composer_device_1 *dev, int disp, int index);
 static int  hwc_blank(struct hwc_composer_device_1 *dev,int dpy,int blank);
 static int  hwc_query(struct hwc_composer_device_1* dev,int what,int* value);
 static int  hwc_event_control(struct hwc_composer_device_1* dev,int dpy,int event,int enabled);
@@ -394,6 +395,8 @@ static int LayerZoneCheck(hwc_layer_1_t * Layer,hwcContext * Context)
                 || rects[i].right > Context->fbWidth
                 || rects[i].bottom > Context->fbHeight)
         {
+        	ALOGE("checkzone=%s,[%d,%d,%d,%d] fb[%dx%d]", \
+             Layer->LayerName, rects[i].left, rects[i].top, rects[i].right, rects[i].bottom, Context->fbWidth, Context->fbHeight);
             return -1;
         }
     }
@@ -456,6 +459,8 @@ static int LayerZoneCheck(hwc_layer_1_t * Layer,hwcContext * Context)
     srcRects.bottom = SrcRect->bottom \
                       - (int) ((DstRect->bottom - dstRects.bottom) * vfactor);
 
+#ifdef TARGET_BOARD_PLATFORM_RK3328
+#else
     if((srcRects.right - srcRects.left ) <= 16
         || (srcRects.bottom - srcRects.top) <= 16)
     {
@@ -463,6 +468,7 @@ static int LayerZoneCheck(hwc_layer_1_t * Layer,hwcContext * Context)
 			ALOGW("source is too small ,LCDC can not support");
         return -1;
     }
+#endif
 
     hfactor = (float)(Layer->sourceCrop.right - Layer->sourceCrop.left)
           / (Layer->displayFrame.right - Layer->displayFrame.left);
@@ -821,7 +827,7 @@ int hwc_reset_fb_info(struct rk_fb_win_cfg_data *fb_info, hwcContext * context)
     int scale = 1;
     int ionFd, phy_addr;
     int xact, yact, xsize, ysize, yvir, format;
-    int relxres, relyres, vsync_priod;
+    int relxres, relyres, fps;
 
     if (!context && context->Is_noi)
         return -EINVAL;
@@ -838,18 +844,18 @@ int hwc_reset_fb_info(struct rk_fb_win_cfg_data *fb_info, hwcContext * context)
             ionFd = fb_info->win_par[i].area_par[j].ion_fd;
             phy_addr = fb_info->win_par[i].area_par[j].phy_addr;
             hfactor = (float)ysize / (float)yact;
-            vsync_priod = context->dpyAttr[HWC_DISPLAY_PRIMARY].vsync_period;
+            fps = 1e9 / context->dpyAttr[HWC_DISPLAY_PRIMARY].vsync_period;
             relxres = context->dpyAttr[HWC_DISPLAY_PRIMARY].relxres;
             relyres = context->dpyAttr[HWC_DISPLAY_PRIMARY].relyres;
 
             interleaveForVop = ionFd || phy_addr;
-            interleaveForVop = interleaveForVop && is_vop_yuv(format);
-            interleaveForVop = interleaveForVop && (xact > MaxIForVop || yact > MaxIForVop);
-            interleaveForVop = interleaveForVop && (hfactor <= 0.95);
-            interleaveForVop = interleaveForVop &&  vsync_priod >= 50 && relxres >= 3840;
+            interleaveForVop = interleaveForVop && is_vop_yuv(format);            
+            interleaveForVop = interleaveForVop && (xact >= MaxIForVop || yact >= MaxIForVop);            
+            interleaveForVop = interleaveForVop && (hfactor <= 0.95);            
+            interleaveForVop = interleaveForVop &&  fps >= 50 && relxres >= 3840;
 
             if (is_out_log())
-                ALOGD("[%d,%d]=>[%d,%d][%d,%d,%d]", xact,yact,xsize,ysize,relxres,relyres,vsync_priod);
+                ALOGD("[%d,%d]=>[%d,%d][%d,%d,%d]", xact,yact,xsize,ysize,relxres,relyres,fps);
             if (is_out_log() && (yvir % 2) && interleaveForVop)
                 ALOGW("We need interleave for vop but yvir is not align to 2");
             interleaveForVop = interleaveForVop && (yvir % 2 == 0);
@@ -1090,9 +1096,17 @@ int try_prepare_first(hwcContext * ctx,hwc_display_contents_1_t *list)
 {
     int hwc_en; 
     int static cnt = 0;
+    unsigned int lpersent = 0;
+    unsigned int tpersent = 0;
+    unsigned int rpersent = 0;
+    unsigned int bpersent = 0;
+
+    char new_valuep[PROPERTY_VALUE_MAX];
+    
     ctx->videoCnt = 0;
     ctx->Is_video = false;
     ctx->Is_Lvideo = false;
+    ctx->Is_4Kvideo = false;
     ctx->Is_Secure = false;
     ctx->special_app = false;
     ctx->hasPlaneAlpha = false;
@@ -1105,6 +1119,15 @@ int try_prepare_first(hwcContext * ctx,hwc_display_contents_1_t *list)
             ALOGW("boot cnt =%d ",cnt);
         return -1;
     }
+    property_get("persist.sys.overscan.main", new_valuep, "false");
+
+    sscanf(new_valuep,"overscan %d,%d,%d,%d",&lpersent,&tpersent,&rpersent,&bpersent);
+
+    if(lpersent != 100 || tpersent != 100 )  
+        ctx->Is_OverscanEn = true;
+    else
+        ctx->Is_OverscanEn = false;
+
     for (unsigned int i = 0; i < (list->numHwLayers - 1); i++)
     {
         hwc_layer_1_t * layer = &list->hwLayers[i];
@@ -1128,6 +1151,8 @@ int try_prepare_first(hwcContext * ctx,hwc_display_contents_1_t *list)
                 ctx->Is_video = true; 
                 if(handle->width > 1440 || handle->height > 1440)
                     ctx->Is_Lvideo = true;;
+                if(handle->width >= 3840 || handle->height >= 2160)
+                    ctx->Is_4Kvideo = true;;
                 if(handle->usage & GRALLOC_USAGE_PROTECTED )
                     ctx->Is_Secure = true;
             }
@@ -1136,6 +1161,8 @@ int try_prepare_first(hwcContext * ctx,hwc_display_contents_1_t *list)
                 ctx->Is_video = true;
                 if(handle->width > 1440 || handle->height > 1440)
                     ctx->Is_Lvideo = true;;
+                if(handle->width >= 3840 || handle->height >= 2160)
+                    ctx->Is_4Kvideo = true;;
                 if(handle->usage & GRALLOC_USAGE_PROTECTED)
                     ctx->Is_Secure = true;
             }
@@ -1212,6 +1239,22 @@ int try_prepare_first(hwcContext * ctx,hwc_display_contents_1_t *list)
     return 0;
 }
 
+int is_need_skip_this_policy(void*ctx)
+{
+    hwcContext * context = (hwcContext *)ctx;
+    bool IsBox = false;
+    if(context->IsRk3128 && context->Is_OverscanEn && context->mScreenChanged)
+    {
+        #ifdef RK312X_BOX
+        IsBox = true;
+        #endif
+        if(IsBox)
+            return 1;
+        else
+            return 0;
+    }
+    return 0;
+}
 int try_hwc_vop_policy(void * ctx,hwc_display_contents_1_t *list)
 {
     int scale_cnt = 0;
@@ -1225,8 +1268,9 @@ int try_hwc_vop_policy(void * ctx,hwc_display_contents_1_t *list)
         return -1;
     }
 #endif
+    if(is_need_skip_this_policy(ctx))
+        return -1;
     forceSkip = context->IsRk3126;
-
     if(context->IsRk3188 && ONLY_USE_ONE_VOP == 1)
         forceSkip = true;
 
@@ -1306,11 +1350,16 @@ int try_hwc_vop_policy(void * ctx,hwc_display_contents_1_t *list)
             if(/*context->vop_mbshake && */context->Is_video || (context->special_app && i == 1 &&
                 list->numHwLayers == 3) || forceUiDetect)
             {
-                int ret = DetectValidData(context,(int *)handle->base,handle->width,handle->height); 
-                if(ret) // ui need display
-                {
-                    return -1;
-                }  
+               if(!strstr(layer->LayerName,"cursor") && !strstr(layer->LayerName,"Sprite"))
+               {
+                       int ret = DetectValidData(context,(int *)handle->base,handle->width,handle->height);
+                       if(ret) // ui need display
+                       {
+                               if(is_out_log())
+                                       ALOGD("line=%d,layer=%s is invalid data",layer->LayerName,__LINE__);
+                               return -1;
+                       }
+               }
             }
             #endif
 
@@ -1354,7 +1403,7 @@ int try_hwc_rga_policy(void * ctx,hwc_display_contents_1_t *list)
     }
     if(context->hasPlaneAlpha)
     {
-	if(is_out_log())
+	    if(is_out_log())
             ALOGD("Hwc rga policy out,line=%d",__LINE__);
         return -1;
     }
@@ -1436,7 +1485,8 @@ int try_hwc_rga_vop_policy(void * ctx,hwc_display_contents_1_t *list)
         return -1;
     }
 #endif
-
+    if(is_need_skip_this_policy(ctx))
+        return -1;
     if(context->engine_fd <= 0)
     {
         if(is_out_log())
@@ -1552,7 +1602,9 @@ int try_hwc_rga_trfm_vop_policy(void * ctx,hwc_display_contents_1_t *list)
     unsigned int i ;
     hwcContext * context = (hwcContext *)ctx;
     int yuv_cnt = 0;
-    
+
+    if(is_need_skip_this_policy(ctx))
+        return -1;
    // RGA_POLICY_MAX_SIZE
 #if ONLY_USE_ONE_VOP
     if(getHdmiMode() == 1)
@@ -1697,6 +1749,8 @@ int try_hwc_rga_trfm_gpu_vop_policy(void * ctx,hwc_display_contents_1_t *list)
     }
 #endif
 
+    if(is_need_skip_this_policy(ctx))
+        return -1;
     if(context->engine_fd <= 0)
     {
         if(is_out_log())
@@ -1921,6 +1975,8 @@ int try_hwc_vop_gpu_policy(void * ctx,hwc_display_contents_1_t *list)
     unsigned int i ;
 
     hwcContext * context = (hwcContext *)ctx;
+    if(is_need_skip_this_policy(ctx))
+        return -1;
 #ifdef USE_X86
     if(getHdmiMode() == 1)
     {
@@ -1928,6 +1984,10 @@ int try_hwc_vop_gpu_policy(void * ctx,hwc_display_contents_1_t *list)
             ALOGD("exit line=%d,is hdmi",__LINE__);
         return -1;
     }
+#endif
+#ifdef RK312X_BOX
+    if(context->IsRk3128 && context->Is_OverscanEn )
+        return -1;
 #endif
     forceSkip = context->IsRk3126;
 
@@ -1939,21 +1999,27 @@ int try_hwc_vop_gpu_policy(void * ctx,hwc_display_contents_1_t *list)
             ALOGD("line=%d,num=%d",__LINE__,list->numHwLayers - 1);
         return -1;
     }
-
+    //ALOGD("Is_4Kvideo=%d,Is_Lvideo=%d",context->Is_4Kvideo,context->Is_Lvideo);
+    //vop_gpu not suppot 4Kvideo because device's BW is not enough
+    if(context->Is_4Kvideo && context->IsRk3328 )
+    {
+        if(is_out_log())
+            ALOGD("line=%d,Is_4Kvideo=%d,vop_gpu not suppot 4Kvideo",__LINE__,context->Is_4Kvideo);
+        return -1;
+    }
     hwc_layer_1_t * layer = &list->hwLayers[0];
     struct private_handle_t * handle = (struct private_handle_t *)layer->handle;
     if ((layer->flags & HWC_SKIP_LAYER) 
         || handle == NULL
         || layer->transform != 0
         // ||(list->numHwLayers - 1)>4
-        ||((list->numHwLayers - 1)<3 && !(context->Is_video && (context->IsRk322x || context->IsRk3328))))
+	||((list->numHwLayers - 1)<3 && !(context->Is_video && (context->IsRk322x))))
     {
         if(is_out_log())
           ALOGD("policy skip,flag=%x,hanlde=%x,tra=%d,num=%d,line=%d",
                     layer->flags,handle,layer->transform,list->numHwLayers,__LINE__);
         return -1;  
     }
-
     for (i = 0; i < (list->numHwLayers - 1); i++)
     {
         hwc_layer_1_t * layer = &list->hwLayers[i];
@@ -1964,7 +2030,6 @@ int try_hwc_vop_gpu_policy(void * ctx,hwc_display_contents_1_t *list)
                 ALOGD("vop_gpu skip,flag=%x,hanlde=%x",layer->flags);
             return -1;
         }
-
         if(i == 0)
         {
             if((context->vop_mbshake || context->Is_video)&& !(handle->usage & GRALLOC_USAGE_PROTECTED) &&
@@ -2287,6 +2352,8 @@ int try_hwc_gpu_nodraw_vop_policy(void * ctx,hwc_display_contents_1_t *list)
 
     forceSkip = context->IsRk3126;
 
+    if(is_need_skip_this_policy(ctx))
+        return -1;
     if(context->IsRk3188 && ONLY_USE_ONE_VOP == 1)
         forceSkip = true;
 
@@ -2513,8 +2580,9 @@ static int hwc_prepare_primary(hwc_composer_device_1 *dev, hwc_display_contents_
     {
         return 0; 
     }
-    
-    LOGV("%s(%d):>>> prepare_primary %d layers <<<",
+
+    if(is_out_log())        
+        LOGD("%s(%d):>>> prepare_primary %d layers <<<",
          __FUNCTION__,
          __LINE__,
          list->numHwLayers);
@@ -2611,8 +2679,8 @@ static int hwc_prepare_external(hwc_composer_device_1 *dev, hwc_display_contents
     {
         return 0;
     }
-
-    LOGV("%s(%d):>>> prepare_primary %d layers <<<",
+    if(is_out_log())        
+        LOGD("%s(%d):>>> prepare_external %d layers <<<",
          __FUNCTION__,
          __LINE__,
          list->numHwLayers);
@@ -2753,6 +2821,8 @@ hwc_prepare(
     int ret = 0;
 
     /* Check device handle. */
+    if(is_out_log())    
+        ALOGD("-----------hwc_prepare_start,numDisplays=%d -----------------",numDisplays);
 
     for (size_t i = 0; i < numDisplays; i++) {
         hwc_display_contents_1_t *list = displays[i];
@@ -2809,7 +2879,28 @@ int hwc_blank(struct hwc_composer_device_1 *dev, int dpy, int blank)
             }
 
         case HWC_DISPLAY_EXTERNAL:
-			gcontextAnchor[HWC_DISPLAY_EXTERNAL]->fb_blanked = blank;
+            {
+                int fb_blank = blank ? FB_BLANK_POWERDOWN : FB_BLANK_UNBLANK;
+                context = gcontextAnchor[HWC_DISPLAY_EXTERNAL];
+
+                int err = ioctl(context->fbFd, FBIOBLANK, fb_blank);
+                ALOGV("call fb blank =%d",fb_blank);
+                if (err < 0)
+                {
+                    if (errno == EBUSY)
+                        ALOGD("%sblank ioctl failed (display already %sblanked)",
+                              blank ? "" : "un", blank ? "" : "un");
+                    else
+                        ALOGE("%sblank ioctl failed: %s", blank ? "" : "un",
+                              strerror(errno));
+                    return -errno;
+                }
+                else
+                {
+                    context->fb_blanked = blank;
+                }
+                break;
+            }        
             #if FORCE_REFRESH
             if(0 == blank)
             {
@@ -3596,7 +3687,7 @@ int hwc_vop_config(hwcContext * context, hwc_display_contents_1_t *list)
 
    // if(!context->fb_blanked)
     {
-	if (context->IsRk3328)
+	if (context->IsRk3328 || context->IsRk3126 || context->IsRk3128)
 	    hotplug_reset_dstpos(&fb_info, 5);
         else if(context->IsRk322x && context->IsRkBox)
             hotplug_reset_dstpos(&fb_info,2);
@@ -4246,6 +4337,10 @@ static int hwc_set_primary(hwc_composer_device_1 *dev, hwc_display_contents_1_t 
 #endif
 
 
+    if(is_out_log())        
+        LOGD("%s(%d):>>> hwc_set_primary  <<<",
+         __FUNCTION__,
+         __LINE__);
     /* Check device handle. */
     if (context == NULL
             || &context->device.common != (hw_device_t *) dev
@@ -4310,10 +4405,6 @@ static int hwc_set_primary(hwc_composer_device_1 *dev, hwc_display_contents_1_t 
     //usec1 = 1000 * (tpend2.tv_sec - tpend1.tv_sec) + (tpend2.tv_usec - tpend1.tv_usec) / 1000;
     //LOGD("hwc_syncs_set use time=%ld ms",  usec1); 
     
-    LOGV("%s(%d):>>> Set start %d layers <<<",
-         __FUNCTION__,
-         __LINE__,
-         list->numHwLayers);
 
     hwc_policy_set(context,list);
 #if hwcUseTime
@@ -4335,6 +4426,10 @@ static int hwc_set_external(hwc_composer_device_1_t *dev, hwc_display_contents_1
     long usec1 = 0;
 #endif
 
+    if(is_out_log())        
+        LOGD("%s(%d):>>> hwc_set_external  <<<",
+         __FUNCTION__,
+         __LINE__ );
 
     /* Check device handle. */
     if (context == NULL || list == NULL)
@@ -4383,10 +4478,6 @@ static int hwc_set_external(hwc_composer_device_1_t *dev, hwc_display_contents_1
     //usec1 = 1000 * (tpend2.tv_sec - tpend1.tv_sec) + (tpend2.tv_usec - tpend1.tv_usec) / 1000;
     //LOGD("hwc_syncs_set use time=%ld ms",  usec1);
 
-    LOGV("%s(%d):>>> Set start %d layers <<<",
-         __FUNCTION__,
-         __LINE__,
-         list->numHwLayers);
 
 #if ONLY_USE_ONE_VOP
     if(context->mHtg.HtgOn && gcontextAnchor[1] && gcontextAnchor[1]->fb_blanked)
@@ -4777,38 +4868,118 @@ hwc_device_close(
     return 0;
 }
 
+HwMode::HwMode(uint32_t width, uint32_t height, uint32_t vrefresh, bool is_interlaced)
+    : width_(width),
+      height_(height),
+      vrefresh_(vrefresh),
+      is_interlaced_(is_interlaced){
+}
+
+HwMode::~HwMode()
+{
+}
+
+uint32_t HwMode::width() const {
+  return width_;
+}
+
+uint32_t HwMode::height() const {
+  return height_;
+}
+
+uint32_t HwMode::vrefresh() const {
+  return vrefresh_;
+}
+
+bool HwMode::is_interlaced() const {
+  return is_interlaced_;
+}
+
+static int hwc_get_active_config(struct hwc_composer_device_1 *dev,
+                                 int display)
+{
+  return 0;
+}
+
+static int hwc_set_active_config(struct hwc_composer_device_1 *dev,
+                                 int disp, int index)
+{
+  hwcContext * pdev = ( hwcContext  *)dev;
+  DisplayAttributes *dpy = &pdev->dpyAttr[disp];
+
+  if (!dpy || !dpy->modes.size()/*|| disp == HWC_DISPLAY_PRIMARY*/) {
+    return -1;
+  }
+  HwMode mode = dpy->modes[index];
+  if (!mode.width() || !mode.height() || !mode.vrefresh()) {
+    return -1;
+  }
+  int fd = open("/sys/class/display/HDMI/mode", O_RDWR);
+  char buffer[100];
+  size_t size;
+
+  size = snprintf(buffer, 100, "%dx%d%c-%d\n", mode.width(), mode.height(),
+                  mode.is_interlaced() ? 'i' : 'p', mode.vrefresh());
+  write(fd,buffer,size);
+  close(fd);
+
+  return 0;
+}
+
 static int hwc_getDisplayConfigs(struct hwc_composer_device_1* dev, int disp,
                                  uint32_t* configs, size_t* numConfigs)
 {
-    int ret = 0;
-    hwcContext * pdev = (hwcContext  *)dev;
-    //in 1.1 there is no way to choose a config, report as config id # 0
-    //This config is passed to getDisplayAttributes. Ignore for now.
-    switch (disp)
-    {
-
-        case HWC_DISPLAY_PRIMARY:
-            if (*numConfigs > 0)
-            {
-                configs[0] = 0;
-                *numConfigs = 1;
-            }
-            ret = 0; //NO_ERROR
-            break;
-        case HWC_DISPLAY_EXTERNAL:
-            ret = -1; //Not connected
-            if (pdev->dpyAttr[HWC_DISPLAY_EXTERNAL].connected)
-            {
-                ret = 0; //NO_ERROR
-                if (*numConfigs > 0)
-                {
-                    configs[0] = 0;
-                    *numConfigs = 1;
-                }
-            }
-            break;
-    }
+	 int ret = 0;
+  hwcContext * pdev = ( hwcContext  *)dev;
+  DisplayAttributes *dpy = &pdev->dpyAttr[disp];
+  if (!numConfigs)
     return 0;
+
+  if (!dpy || !*numConfigs)
+    return -1;
+  dpy->modes.clear();
+  if (disp == HWC_DISPLAY_PRIMARY) {
+    HwMode mode(dpy->xres, dpy->yres, 1000000000 / dpy->vsync_period, false);
+    dpy->modes.push_back(mode);
+    configs[0] = 0;
+  }
+
+#if 0
+  if (disp == HWC_DISPLAY_PRIMARY) {
+    HwMode mode(dpy->xres, dpy->yres, 1000000000 / dpy->vsync_period, false);
+    dpy->modes.push_back(mode);
+    configs[0] = 0;
+  } else if (disp == HWC_DISPLAY_EXTERNAL && dpy->connected) {
+#endif
+  {
+    ssize_t read = 0;
+    size_t len;
+    char *line = NULL;
+    FILE * pfile = fopen("/sys/class/display/HDMI/modes", "r");
+
+    if (!pfile)
+      return -1;
+
+    while (read != -1) {
+      unsigned int width, height, vrefresh;
+      char val;
+      int idx = dpy->modes.size();
+
+      read = getline(&line, &len, pfile);
+      sscanf(line, "%dx%d%c-%d", &width, &height, &val, &vrefresh);
+      if (!width || !height || !vrefresh)
+        continue;
+      if (width > 4096 || height > 4096 || vrefresh > 200)
+	continue;
+      HwMode mode(width, height, vrefresh, val == 'i');
+      dpy->modes.push_back(mode);
+      configs[idx] = idx;
+    }
+    fclose(pfile);
+  }
+  *numConfigs = dpy->modes.size();
+
+  return *numConfigs ? 0 : -1;
 }
 
 static int hwc_getDisplayAttributes(struct hwc_composer_device_1* dev, int disp,
@@ -4817,9 +4988,10 @@ static int hwc_getDisplayAttributes(struct hwc_composer_device_1* dev, int disp,
     HWC_UNREFERENCED_PARAMETER(config);
 
     hwcContext  *pdev = (hwcContext  *)dev;
+    DisplayAttributes *dpy = &pdev->dpyAttr[disp];
     //If hotpluggable displays are inactive return error
-    if (disp == HWC_DISPLAY_EXTERNAL && !pdev->dpyAttr[disp].connected)
-    {
+    if(!dpy || !dpy->modes.size() ||
+       (disp == HWC_DISPLAY_EXTERNAL && !pdev->dpyAttr[disp].connected)) {
         return -1;
     }
     static  uint32_t DISPLAY_ATTRIBUTES[] =
@@ -4834,23 +5006,24 @@ static int hwc_getDisplayAttributes(struct hwc_composer_device_1* dev, int disp,
     //From HWComposer
 
     const int NUM_DISPLAY_ATTRIBUTES = (sizeof(DISPLAY_ATTRIBUTES) / sizeof(DISPLAY_ATTRIBUTES)[0]);
+    HwMode mode = dpy->modes[config];
 
     for (size_t i = 0; i < NUM_DISPLAY_ATTRIBUTES - 1; i++)
     {
         switch (attributes[i])
         {
             case HWC_DISPLAY_VSYNC_PERIOD:
-                values[i] = pdev->dpyAttr[disp].vsync_period;
+                values[i] = 1000000000 / mode.vrefresh();
                 break;
             case HWC_DISPLAY_WIDTH:
-                values[i] = pdev->dpyAttr[disp].xres;
-                ALOGD("%s disp = %d, width = %d", __FUNCTION__, disp,
-                      pdev->dpyAttr[disp].xres);
+		values[i] = mode.width();
+		ALOGE("%s disp = %d, width = %d",__FUNCTION__, disp,
+				mode.width());
                 break;
             case HWC_DISPLAY_HEIGHT:
-                values[i] = pdev->dpyAttr[disp].yres;
-                ALOGD("%s disp = %d, height = %d", __FUNCTION__, disp,
-                      pdev->dpyAttr[disp].yres);
+		values[i] = mode.height();
+		ALOGE("%s disp = %d, height = %d",__FUNCTION__, disp,
+				mode.height());
                 break;
             case HWC_DISPLAY_DPI_X:
                 values[i] = (int32_t)(pdev->dpyAttr[disp].xdpi);
@@ -5046,6 +5219,9 @@ hwc_device_open(
     context->device.eventControl   = hwc_event_control;
 
     context->device.registerProcs  = hwc_registerProcs;
+
+    context->device.getActiveConfig = hwc_get_active_config;
+    context->device.setActiveConfig = hwc_set_active_config;
 
     context->device.getDisplayConfigs = hwc_getDisplayConfigs;
     context->device.getDisplayAttributes = hwc_getDisplayAttributes;
@@ -6035,7 +6211,7 @@ int hotplug_reset_dstpos(struct rk_fb_win_cfg_data * fb_info,int flag)
         w_source = ctxp->dpyAttr[HWC_DISPLAY_PRIMARY].xres;
         h_source = ctxp->dpyAttr[HWC_DISPLAY_PRIMARY].yres;
 
-        property_get("persist.sys.overscan.main", new_valuep, "false");
+        property_get("persist.sys.overscan.main", new_valuep, "overscan 100,100,100,100");
         property_get("persist.sys.overscan.aux",  new_valuee, "false");
 
         sscanf(new_valuep,"overscan %d,%d,%d,%d",&lpersent,&tpersent,&rpersent,&bpersent);

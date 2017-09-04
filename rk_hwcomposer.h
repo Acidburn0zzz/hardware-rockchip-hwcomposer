@@ -81,8 +81,13 @@
 #define VOP_WIN_NUM       2
 #define RGA_USE_FENCE     0
 #define VIDEO_USE_PPROT   0
-#define HOTPLUG_MODE      1
+#ifdef RK312X_BOX
+    #define HOTPLUG_MODE      0
+#else
+    #define HOTPLUG_MODE      1
+#endif
 #define ONLY_USE_ONE_VOP  1
+#define FORCE_REFRESH     1
 #define VIDEO_WIN1_UI_DISABLE     1
 #define VIRTUAL_UI_RESOLUTION     0
 #elif defined(TARGET_BOARD_PLATFORM_RK322X)
@@ -258,9 +263,27 @@ FenceMangrRga;
         /* Next area pool. */
         hwcAreaPool *                    next;
     };
+class HwMode {
+ public:
+  HwMode() = default;
+  HwMode(uint32_t width, uint32_t height, uint32_t vrefresh, bool is_uint32_terlaced);
+  ~HwMode();
+
+  uint32_t width() const;
+  uint32_t height() const;
+  uint32_t vrefresh() const;
+  bool is_interlaced() const;
+
+ private:
+  uint32_t width_;
+  uint32_t height_;
+  uint32_t vrefresh_; //nanos
+  bool is_interlaced_;
+};
 
     struct DisplayAttributes
     {
+	std::vector<HwMode> modes;
         uint32_t vsync_period; //nanos
         uint32_t xres;
         uint32_t yres;
@@ -418,7 +441,8 @@ FenceMangrRga;
         int     scaleFd;
         bool     vop_mbshake;
         bool     Is_video;
-        bool     Is_Lvideo;        
+        bool     Is_Lvideo; 
+	 bool	  Is_4Kvideo;
         bool     Is_bypp;
         bool     Is_Secure;
         bool     Is_noi;
@@ -426,6 +450,7 @@ FenceMangrRga;
         int      isStereo;
         int      Is_debug;
     	int           iommuEn;
+    	bool     Is_OverscanEn;
         alloc_device_t  *mAllocDev;
         int     *video_ui;
         int rga_fence_relfd[RGA_REL_FENCE_NUM];
