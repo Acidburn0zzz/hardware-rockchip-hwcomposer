@@ -37,7 +37,6 @@ LOCAL_SRC_FILES := \
 	TVInfo.cpp
 
 LOCAL_CFLAGS := \
-	$(CFLAGS) \
 	-Wall \
 	-Wextra \
 	-DLOG_TAG=\"hwcomposer\"
